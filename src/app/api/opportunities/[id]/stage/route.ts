@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OpportunitiesService } from "@/services/highlevel/opportunities";
-import { PipelineStageId } from "@/types";
 import { z } from "zod";
 
 const updateStageSchema = z.object({
-  stageId: z.enum([
-    "new_lead",
-    "contacted",
-    "interested",
-    "consultation_booked",
-    "treatment_scheduled",
-    "won",
-    "lost",
-  ]),
+  stageId: z.string().min(1, "معرف المرحلة مطلوب"),
 });
 
 export async function PUT(
@@ -23,16 +14,16 @@ export async function PUT(
     const body = await req.json();
     const validated = updateStageSchema.parse(body);
 
-    const updated = await OpportunitiesService.updateStage(
+    const success = await OpportunitiesService.updateStage(
       params.id,
-      validated.stageId as PipelineStageId
+      validated.stageId
     );
 
-    if (!updated) {
+    if (!success) {
       return NextResponse.json({ error: "تعذر تحديث مرحلة الصفقة" }, { status: 400 });
     }
 
-    return NextResponse.json({ opportunity: updated });
+    return NextResponse.json({ success: true, stageId: validated.stageId });
   } catch (error: unknown) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "مرحلة غير صالحة", issues: error.errors }, { status: 400 });

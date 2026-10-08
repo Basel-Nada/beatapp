@@ -2,59 +2,104 @@ import { Opportunity, PipelineStage } from "@/types";
 import { getHighLevelConfig, highLevelRequest } from "./client";
 import { mockStore } from "./mock-store";
 
-export const MEDSPA_PIPELINE_STAGES: PipelineStage[] = [
-  { id: "new_lead", name: "عميل جديد", color: "bg-blue-50 text-blue-700 border-blue-200" },
-  { id: "contacted", name: "تم التواصل", color: "bg-purple-50 text-purple-700 border-purple-200" },
-  { id: "interested", name: "مهتم", color: "bg-amber-50 text-amber-700 border-amber-200" },
-  { id: "consultation_booked", name: "حجز استشارة", color: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  { id: "treatment_scheduled", name: "تم الحجز", color: "bg-teal-50 text-teal-700 border-teal-200" },
-  { id: "won", name: "تم البيع", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  { id: "lost", name: "غير مهتم", color: "bg-slate-50 text-slate-600 border-slate-200" },
-];
+export interface HighLevelPipeline {
+  id: string;
+  name: string;
+  stages: Array<{
+    id: string;
+    name: string;
+    position: number;
+    color?: string;
+  }>;
+}
+
+interface GhlPipelinesResponse {
+  pipelines: HighLevelPipeline[];
+}
 
 interface GhlOpportunitySearchResponse {
   opportunities: Array<{
     id: string;
     name: string;
     monetaryValue?: number;
+    pipelineId?: string;
     pipelineStageId?: string;
     contact?: {
       id: string;
       name?: string;
       phone?: string;
+      email?: string;
     };
+    assignedTo?: string;
+    status?: string;
     updatedAt?: string;
     createdAt?: string;
   }>;
 }
 
 export const OpportunitiesService = {
-  getPipelineStages(): PipelineStage[] {
-    return MEDSPA_PIPELINE_STAGES;
+  async getPipelines(locationId?: string): Promise<HighLevelPipeline[]> {
+    const config = getHighLevelConfig(locationId);
+
+    if (config.isDemoMode) {
+      return [
+        {
+          id: "pipe-demo-1",
+          name: "مسار العيادة التجميلية الافتراضي",
+          stages: [
+            { id: "new_lead", name: "عميل جديد", position: 0 },
+            { id: "contacted", name: "تم التواصل", position: 1 },
+            { id: "interested", name: "مهتم", position: 2 },
+            { id: "consultation_booked", name: "حجز استشارة", position: 3 },
+            { id: "treatment_scheduled", name: "تم الحجز", position: 4 },
+            { id: "won", name: "تم البيع", position: 5 },
+            { id: "lost", name: "غير مهتم", position: 6 },
+          ],
+        },
+      ];
+    }
+
+    try {
+      const res = await highLevelRequest<GhlPipelinesResponse>(
+        `/opportunities/pipelines?locationId=${config.locationId}`,
+        {},
+        config.locationId
+      );
+      return res.pipelines || [];
+    } catch {
+      return [];
+    }
   },
 
-  async getOpportunities(locationId?: string): Promise<Opportunity[]> {
-    const config = getHighLevelConfig(locationId);
+  async getOpportunities(params?: { locationId?: string; pipelineId?: string }): Promise<Opportunity[]> {
+    const config = getHighLevelConfig(params?.locationId);
 
     if (config.isDemoMode) {
       return mockStore.getOpportunities();
     }
 
     try {
+      const q = new URLSearchParams({
+        location_id: config.locationId!,
+      });
+      if (params?.pipelineId) {
+        q.set("pipeline_id", params.pipelineId);
+      }
+
       const res = await highLevelRequest<GhlOpportunitySearchResponse>(
-        `/opportunities/search?location_id=${config.locationId}`,
+        `/opportunities/search?${q.toString()}`,
         {},
         config.locationId
       );
 
-      return res.opportunities.map((opp) => ({
+      return (res.opportunities || []).map((opp) => ({
         id: opp.id,
         contactId: opp.contact?.id || "",
         contactName: opp.contact?.name || opp.name || "عميل غير معروف",
         contactPhone: opp.contact?.phone || "",
         service: opp.name,
         monetaryValue: opp.monetaryValue || 0,
-        stageId: "new_lead", // Map to MedSpa stages
+        stageId: (opp.pipelineStageId || "new_lead") as Opportunity["stageId"],
         assignedStaff: "فريق المبيعات",
         lastActivityDate: opp.updatedAt || opp.createdAt || new Date().toISOString(),
         createdAt: opp.createdAt || new Date().toISOString(),
@@ -64,31 +109,50 @@ export const OpportunitiesService = {
     }
   },
 
-  async updateStage(opportunityId: string, stageId: Opportunity["stageId"], locationId?: string): Promise<Opportunity | null> {
+  async updateStage(
+    opportunityId: string,
+    pipelineStageId: string,
+    locationId?: string
+  ): Promise<boolean> {
     const config = getHighLevelConfig(locationId);
 
     if (config.isDemoMode) {
-      const updated = mockStore.updateOpportunityStage(opportunityId, stageId);
-      return updated || null;
+      mockStore.updateOpportunityStage(opportunityId, pipelineStageId as Opportunity["stageId"]);
+      return true;
     }
 
     try {
-      // In live GHL, update the opportunity status / stage
+      // HighLevel update opportunity status/stage
       await highLevelRequest(
         `/opportunities/${opportunityId}/status`,
         {
           method: "PUT",
           body: JSON.stringify({
-            status: stageId === "won" ? "won" : stageId === "lost" ? "abandoned" : "open",
-            pipelineStageId: stageId,
+            pipelineStageId,
+            status: "open",
           }),
         },
         config.locationId
       );
-      const list = await this.getOpportunities(locationId);
-      return list.find(o => o.id === opportunityId) || null;
+      return true;
     } catch {
-      return null;
+      try {
+        // Fallback to update opportunity general endpoint
+        await highLevelRequest(
+          `/opportunities/${opportunityId}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              pipelineStageId,
+            }),
+          },
+          config.locationId
+        );
+        return true;
+      } catch (e) {
+        console.error("Update stage failed", e);
+        return false;
+      }
     }
   },
 };

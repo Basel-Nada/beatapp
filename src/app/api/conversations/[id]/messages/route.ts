@@ -4,6 +4,7 @@ import { z } from "zod";
 
 const sendMessageSchema = z.object({
   body: z.string().min(1, "نص الرسالة مطلوب"),
+  contactId: z.string().optional(),
   senderName: z.string().optional(),
 });
 
@@ -34,6 +35,7 @@ export async function POST(
     const message = await ConversationsService.sendMessage(
       params.id,
       validated.body,
+      validated.contactId,
       validated.senderName || "الاستقبال"
     );
 

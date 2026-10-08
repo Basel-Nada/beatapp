@@ -12,6 +12,7 @@ interface GhlConversationsSearchResponse {
     lastMessageType?: string;
     unreadCount?: number;
     contactName?: string;
+    fullName?: string;
     phone?: string;
   }>;
   total?: number;
@@ -45,19 +46,24 @@ export const ConversationsService = {
         config.locationId
       );
 
-      return res.conversations.map((c) => ({
-        id: c.id,
-        contactId: c.contactId,
-        contactName: c.contactName || "عميل بدون اسم",
-        contactPhone: c.phone || "",
-        lastMessageBody: c.lastMessageBody || "",
-        lastMessageDate: c.lastMessageDate ? new Date(c.lastMessageDate).toISOString() : new Date().toISOString(),
-        lastMessageDirection: "inbound",
-        unreadCount: c.unreadCount || 0,
-        channel: (c.lastMessageType?.toLowerCase().includes("whatsapp") ? "whatsapp" : "sms") as Conversation["channel"],
-        status: "open",
-        opportunityStage: "قيد المتابعة",
-      }));
+      return (res.conversations || []).map((c) => {
+        const contactName = c.contactName || c.fullName || "عميل غير معروف";
+        const isWhatsapp = (c.lastMessageType || "").toLowerCase().includes("whatsapp");
+
+        return {
+          id: c.id,
+          contactId: c.contactId,
+          contactName,
+          contactPhone: c.phone || "",
+          lastMessageBody: c.lastMessageBody || "",
+          lastMessageDate: c.lastMessageDate ? new Date(c.lastMessageDate).toISOString() : new Date().toISOString(),
+          lastMessageDirection: "inbound",
+          unreadCount: c.unreadCount || 0,
+          channel: (isWhatsapp ? "whatsapp" : "whatsapp") as Conversation["channel"],
+          status: "open",
+          opportunityStage: "قيد المتابعة",
+        };
+      });
     } catch {
       return mockStore.getConversations();
     }
@@ -77,13 +83,17 @@ export const ConversationsService = {
         config.locationId
       );
 
-      return (res.messages?.messages || []).map((m) => ({
+      const raw = res.messages?.messages || [];
+      // Sort chronologically ascending
+      const sorted = [...raw].sort((a, b) => new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime());
+
+      return sorted.map((m) => ({
         id: m.id,
         conversationId,
         body: m.body,
         direction: m.direction === "inbound" ? "inbound" : "outbound",
-        channel: m.messageType?.toLowerCase().includes("whatsapp") ? "whatsapp" : "sms",
-        status: "delivered",
+        channel: "whatsapp",
+        status: m.status === "failed" ? "failed" : "delivered",
         createdAt: m.dateAdded || new Date().toISOString(),
       }));
     } catch {
@@ -94,7 +104,8 @@ export const ConversationsService = {
   async sendMessage(
     conversationId: string,
     body: string,
-    senderName: string = "عيادات لومينا",
+    contactId?: string,
+    senderName: string = "بيتاب",
     locationId?: string
   ): Promise<Message> {
     const config = getHighLevelConfig(locationId);
@@ -103,14 +114,30 @@ export const ConversationsService = {
       return mockStore.sendMessage(conversationId, body, senderName);
     }
 
-    // HighLevel Post message endpoint
-    await highLevelRequest(
+    // HighLevel requires contactId. If missing, look it up from conversation search
+    let targetContactId = contactId;
+    if (!targetContactId) {
+      try {
+        const convs = await this.getConversations(locationId);
+        const match = convs.find(c => c.id === conversationId);
+        if (match) targetContactId = match.contactId;
+      } catch (e) {
+        console.error("Could not find contactId for conversation", e);
+      }
+    }
+
+    if (!targetContactId) {
+      throw new Error("تعذر تحديد معرف العميل (contactId) لإرسال الرسالة");
+    }
+
+    // Send via HighLevel Post message endpoint
+    const res = await highLevelRequest<{ conversationId: string; messageId: string }>(
       "/conversations/messages",
       {
         method: "POST",
         body: JSON.stringify({
-          conversationId,
           type: "WhatsApp",
+          contactId: targetContactId,
           message: body,
         }),
       },
@@ -118,7 +145,7 @@ export const ConversationsService = {
     );
 
     return {
-      id: `ghl-msg-${Date.now()}`,
+      id: res.messageId || `msg-${Date.now()}`,
       conversationId,
       body,
       direction: "outbound",

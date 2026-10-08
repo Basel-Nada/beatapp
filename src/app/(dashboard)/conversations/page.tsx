@@ -5,21 +5,14 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Send,
-  Phone,
   Calendar,
   User,
-  Plus,
   Sparkles,
   Paperclip,
-  Clock,
   CheckCheck,
-  Check,
-  ExternalLink,
   MessageCircle,
-  Instagram,
-  Mail,
   AlertCircle,
-  FileText,
+  RefreshCw,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -28,8 +21,8 @@ import { formatRelativeArabicTime, formatArabicTime } from "@/lib/date";
 import { Conversation, Message } from "@/types";
 
 const QUICK_REPLIES = [
-  "أهلاً بك في عيادات لومينا! كيف نقدر نخدمك اليوم؟ 🌸",
-  "باقات الليزر لدينا تشمل جلسة رتوش مجانية بعد 10 أيام بأجهزة جنتل برو ✨",
+  "أهلاً بك في بيتاب! كيف نقدر نخدمك اليوم؟ 🌸",
+  "تم استلام طلبكم وسيتم التواصل معكم لتأكيد التفاصيل ✨",
   "موقعنا: طريق الملك فهد، العليا، الرياض. يسعدنا استقبالكم!",
   "هل يناسبك موعد اليوم الساعة 5:00 مساءً؟",
 ];
@@ -46,65 +39,99 @@ function ConversationsContent() {
   const [loadingMessages, setLoadingMessages] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const [channelFilter, setChannelFilter] = React.useState<string>("all");
+  const [sendError, setSendError] = React.useState<string | null>(null);
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToBottom = (smooth = true) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
   };
 
-  // 1. Fetch conversations
-  React.useEffect(() => {
-    fetch("/api/conversations")
-      .then((res) => res.json())
-      .then((data) => {
-        setConversations(data.conversations || []);
-        if (!selectedId && data.conversations?.length > 0) {
-          setSelectedId(data.conversations[0].id);
-        }
-        setLoadingConv(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setLoadingConv(false);
-      });
-  }, []);
-
-  // 2. Fetch messages for selected conversation
-  React.useEffect(() => {
-    if (!selectedId) return;
-
-    setLoadingMessages(true);
-    fetch(`/api/conversations/${selectedId}/messages`)
-      .then((res) => res.json())
-      .then((data) => {
-        setMessages(data.messages || []);
-        setLoadingMessages(false);
-        setTimeout(scrollToBottom, 50);
-      })
-      .catch((err) => {
-        console.error(err);
-        setLoadingMessages(false);
-      });
+  // 1. Fetch conversations with silent background refresh
+  const fetchConversations = React.useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoadingConv(true);
+    try {
+      const res = await fetch("/api/conversations");
+      const data = await res.json();
+      const list = data.conversations || [];
+      setConversations(list);
+      if (!selectedId && list.length > 0) {
+        setSelectedId(list[0].id);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      if (!isBackground) setLoadingConv(false);
+    }
   }, [selectedId]);
 
-  // Handle Send
+  // Initial fetch + Polling every 8s for conversations list
+  React.useEffect(() => {
+    fetchConversations(false);
+    const interval = setInterval(() => {
+      fetchConversations(true);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [fetchConversations]);
+
+  // 2. Fetch messages with silent background refresh
+  const fetchMessages = React.useCallback(async (convId: string, isBackground = false) => {
+    if (!convId) return;
+    if (!isBackground) setLoadingMessages(true);
+    try {
+      const res = await fetch(`/api/conversations/${convId}/messages`);
+      const data = await res.json();
+      setMessages(data.messages || []);
+      if (!isBackground) {
+        setTimeout(() => scrollToBottom(false), 50);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      if (!isBackground) setLoadingMessages(false);
+    }
+  }, []);
+
+  // When selected conversation changes
+  React.useEffect(() => {
+    if (!selectedId) return;
+    fetchMessages(selectedId, false);
+    setSendError(null);
+
+    // Live auto-poll for new messages every 4 seconds
+    const msgInterval = setInterval(() => {
+      fetchMessages(selectedId, true);
+    }, 4000);
+    return () => clearInterval(msgInterval);
+  }, [selectedId, fetchMessages]);
+
+  const selectedConv = conversations.find((c) => c.id === selectedId);
+
+  // Handle Send Message
   const handleSendMessage = async (textToSend?: string) => {
     const text = textToSend || inputText;
     if (!text.trim() || !selectedId || sending) return;
 
     setSending(true);
+    setSendError(null);
+
+    const payload = {
+      body: text,
+      contactId: selectedConv?.contactId,
+    };
+
     try {
       const res = await fetch(`/api/conversations/${selectedId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: text }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (data.message) {
+
+      if (res.ok && data.message) {
         setMessages((prev) => [...prev, data.message]);
         setInputText("");
-        setTimeout(scrollToBottom, 50);
+        setTimeout(() => scrollToBottom(true), 50);
 
         // Update list snippet
         setConversations((prev) =>
@@ -114,15 +141,16 @@ function ConversationsContent() {
               : c
           )
         );
+      } else {
+        setSendError(data.error || data.details || "تعذر إرسال الرسالة عبر HighLevel");
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: unknown) {
+      const err = e as Error;
+      setSendError(err.message);
     } finally {
       setSending(false);
     }
   };
-
-  const selectedConv = conversations.find((c) => c.id === selectedId);
 
   const filteredConversations = React.useMemo(() => {
     if (channelFilter === "all") return conversations;
@@ -137,24 +165,29 @@ function ConversationsContent() {
           {/* Header & Filter */}
           <div className="p-3.5 border-b border-slate-200 bg-white space-y-2.5">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-slate-900">المحادثات</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900">المحادثات</h2>
+                <span className="flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full font-medium">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>تحديث لايف</span>
+                </span>
+              </div>
               <span className="text-xs text-slate-500 font-medium">
                 {conversations.length} نشطة
               </span>
             </div>
 
-            {/* Channel filter pills */}
+            {/* Channel filter pills (Without SMS per user request) */}
             <div className="flex gap-1.5 overflow-x-auto pb-1">
               {[
                 { id: "all", label: "الكل" },
                 { id: "whatsapp", label: "واتساب" },
                 { id: "instagram", label: "إنستغرام" },
-                { id: "sms", label: "SMS" },
               ].map((f) => (
                 <button
                   key={f.id}
                   onClick={() => setChannelFilter(f.id)}
-                  className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                  className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors whitespace-nowrap ${
                     channelFilter === f.id
                       ? "bg-brand-700 text-white"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -200,21 +233,9 @@ function ConversationsContent() {
                       </p>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
-                          {conv.channel === "whatsapp" && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                              واتساب
-                            </span>
-                          )}
-                          {conv.channel === "instagram" && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded">
-                              إنستغرام
-                            </span>
-                          )}
-                          {conv.channel === "sms" && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded">
-                              SMS
-                            </span>
-                          )}
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            واتساب
+                          </span>
                           {conv.opportunityStage && (
                             <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
                               {conv.opportunityStage}
@@ -249,10 +270,10 @@ function ConversationsContent() {
                       {selectedConv.contactName}
                     </h3>
                     <Badge variant="brand" className="text-[10px] py-0">
-                      {selectedConv.channel === "whatsapp" ? "واتساب" : "إنستغرام"}
+                      واتساب
                     </Badge>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">
+                  <div className="text-[11px] text-slate-500 mt-0.5 font-mono" dir="ltr">
                     {selectedConv.contactPhone || "بدون رقم مسجل"}
                   </div>
                 </div>
@@ -283,7 +304,7 @@ function ConversationsContent() {
                 </div>
               ) : messages.length === 0 ? (
                 <div className="py-12 text-center text-xs text-slate-400">
-                  ابدأ المحادثة الآن بإرسال رسالة
+                  لا توجد رسائل سابقة. أرسل رسالة للبدء!
                 </div>
               ) : (
                 messages.map((msg) => {
@@ -300,15 +321,6 @@ function ConversationsContent() {
                             : "bg-white text-slate-800 border border-slate-200/80 rounded-tl-none"
                         }`}
                       >
-                        {msg.senderName && (
-                          <div
-                            className={`text-[10px] font-semibold mb-1 ${
-                              isOutbound ? "text-brand-200" : "text-brand-800"
-                            }`}
-                          >
-                            {msg.senderName}
-                          </div>
-                        )}
                         <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
                         <div
                           className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
@@ -325,6 +337,14 @@ function ConversationsContent() {
               )}
               <div ref={messagesEndRef} />
             </div>
+
+            {/* Error banner if send failed */}
+            {sendError && (
+              <div className="px-4 py-2 bg-rose-50 border-t border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span className="truncate">{sendError}</span>
+              </div>
+            )}
 
             {/* Quick Replies Carousel */}
             <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/70 flex items-center gap-2 overflow-x-auto text-xs">
@@ -352,13 +372,6 @@ function ConversationsContent() {
                 }}
                 className="flex items-center gap-2"
               >
-                <button
-                  type="button"
-                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                  title="إرفاق ملف أو صورة"
-                >
-                  <Paperclip className="h-5 w-5" />
-                </button>
                 <input
                   type="text"
                   placeholder="اكتب رسالتك هنا..."
@@ -370,7 +383,7 @@ function ConversationsContent() {
                   type="submit"
                   variant="primary"
                   size="md"
-                  className="h-10 px-4 gap-1.5"
+                  className="h-10 px-5 gap-1.5 font-semibold"
                   disabled={!inputText.trim() || sending}
                   isLoading={sending}
                 >
