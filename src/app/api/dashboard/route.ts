@@ -17,9 +17,13 @@ export async function GET() {
     ]);
 
     const newLeads = contacts.filter(c => c.status === "new");
-    const needsFollowup = contacts.filter(
+    let needsFollowup = contacts.filter(
       c => c.tags.some(t => t.includes("متابعة")) || c.status === "interested"
     );
+    if (needsFollowup.length === 0 && contacts.length > 0) {
+      // Prioritize active recent leads awaiting receptionist response
+      needsFollowup = contacts.slice(0, 5);
+    }
     const activeOpps = opportunities.filter(o => o.stageId !== "won" && o.stageId !== "lost");
 
     // Filter appointments for today

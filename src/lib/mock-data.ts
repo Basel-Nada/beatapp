@@ -14,11 +14,11 @@ export const DEFAULT_MOCK_TENANT: Tenant = {
 
 export const DEFAULT_MOCK_USER: User = {
   id: "user-1",
-  name: "أحمد بن عبد العزيز",
-  email: "ahmed@luminamedspa.com",
+  name: "باسم مصباح",
+  email: "info@adwave.co",
   role: "manager",
   avatarUrl: "",
-  locationId: "loc_demo_lumina_riyadh",
+  locationId: "9m3VyK57t1Ah7Pmen0gA",
 };
 
 export const MOCK_CONTACTS: Contact[] = [

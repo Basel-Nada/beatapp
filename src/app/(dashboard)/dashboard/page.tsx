@@ -26,8 +26,18 @@ import { DashboardMetrics } from "@/types";
 export default function DashboardPage() {
   const [data, setData] = React.useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [userName, setUserName] = React.useState("باسم");
 
   React.useEffect(() => {
+    fetch("/api/auth/session")
+      .then((res) => res.json())
+      .then((s) => {
+        if (s.user?.name) {
+          setUserName(s.user.name.split(" ")[0]);
+        }
+      })
+      .catch(() => {});
+
     fetch("/api/dashboard")
       .then((res) => res.json())
       .then((resData) => {
@@ -39,6 +49,14 @@ export default function DashboardPage() {
         setLoading(false);
       });
   }, []);
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return "صباح الخير";
+    if (hour >= 12 && hour < 17) return "مساء الخير";
+    if (hour >= 17 && hour < 24) return "مساء الخير";
+    return "أهلاً بك";
+  };
 
   const metrics = data?.metrics || {
     newLeadsCount: 0,
@@ -53,7 +71,7 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <span>صباح الخير، أحمد</span>
+            <span>{getGreeting()}، {userName}</span>
             <span className="inline-block animate-wave">👋</span>
           </h1>
           <p className="mt-1 text-sm text-slate-500">

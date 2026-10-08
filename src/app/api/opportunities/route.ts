@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OpportunitiesService } from "@/services/highlevel/opportunities";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -8,10 +11,10 @@ export async function GET(req: NextRequest) {
 
     const pipelines = await OpportunitiesService.getPipelines();
     
-    // Choose active pipeline: either requested, or first pipeline
+    // Choose active pipeline: either requested, or pipeline with active opportunities, or first pipeline
     const activePipeline = requestedPipelineId
       ? pipelines.find((p) => p.id === requestedPipelineId) || pipelines[0]
-      : pipelines[0];
+      : pipelines.find((p) => p.name.toLowerCase().includes("sales")) || pipelines[0];
 
     const pipelineIdToUse = activePipeline?.id;
     const opportunities = await OpportunitiesService.getOpportunities({
