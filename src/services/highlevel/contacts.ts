@@ -11,6 +11,7 @@ interface GhlContactResponse {
     lastName?: string;
     phone?: string;
     email?: string;
+    source?: string;
     tags?: string[];
     dateAdded?: string;
     dateUpdated?: string;
@@ -73,7 +74,7 @@ export const ContactsService = {
         email: ghl.email || "",
         serviceInterest: tags.find(t => !["عميل جديد", "مهتم", "متابعة"].includes(t)) || "استشارة عامة",
         status,
-        leadSource: "HighLevel CRM",
+        leadSource: ghl.source || "HighLevel CRM",
         assignedStaff: "فريق العيادة",
         lastContactDate: ghl.dateUpdated || ghl.dateAdded || new Date().toISOString(),
         totalSpent: 0,

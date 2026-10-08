@@ -42,7 +42,7 @@ export const OpportunitiesService = {
 
     try {
       const res = await highLevelRequest<GhlOpportunitySearchResponse>(
-        `/opportunities/search?locationId=${config.locationId}`,
+        `/opportunities/search?location_id=${config.locationId}`,
         {},
         config.locationId
       );

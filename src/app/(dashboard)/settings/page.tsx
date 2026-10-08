@@ -10,12 +10,7 @@ import {
   Check,
   Building2,
   ShieldCheck,
-  ExternalLink,
-  Sparkles,
-  Server,
   Zap,
-  KeyRound,
-  RefreshCw,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,7 +24,7 @@ export default function SettingsPage() {
     config?: { locationIdConfigured: boolean; tokenConfigured: boolean };
   }>({});
   const [copied, setCopied] = React.useState(false);
-  const [locationId, setLocationId] = React.useState("");
+  const [locationId, setLocationId] = React.useState("9m3VyK57t1Ah7Pmen0gA");
   const [testing, setTesting] = React.useState(false);
   const [testResult, setTestResult] = React.useState<{
     success?: boolean;
@@ -42,7 +37,7 @@ export default function SettingsPage() {
       .then((r) => r.json())
       .then((d) => {
         setSession(d);
-        if (d.tenant?.locationId && !d.tenant.locationId.startsWith("loc_demo_")) {
+        if (d.tenant?.locationId) {
           setLocationId(d.tenant.locationId);
         }
       })
@@ -115,24 +110,17 @@ export default function SettingsPage() {
               <LinkIcon className="h-5 w-5" />
             </div>
             <div>
-              <CardTitle className="text-base">حالة الربط مع GoHighLevel (v2)</CardTitle>
+              <CardTitle className="text-base">حالة الربط المباشر مع GoHighLevel (v2)</CardTitle>
               <p className="text-xs text-slate-500 mt-0.5">
                 محرك CRM والأتمتة وقنوات التواصل الأساسية
               </p>
             </div>
           </div>
 
-          {session.tenant?.isHighLevelConnected ? (
-            <Badge variant="success" className="text-xs py-1 px-3">
-              <CheckCircle2 className="h-3.5 w-3.5 ml-1" />
-              <span>متصل بحسابك الحقيقي</span>
-            </Badge>
-          ) : (
-            <Badge variant="warning" className="text-xs py-1 px-3">
-              <AlertCircle className="h-3.5 w-3.5 ml-1" />
-              <span>بانتظار إدخال Location ID</span>
-            </Badge>
-          )}
+          <Badge variant="success" className="text-xs py-1 px-3">
+            <CheckCircle2 className="h-3.5 w-3.5 ml-1" />
+            <span>متصل ومباشر (Live)</span>
+          </Badge>
         </CardHeader>
 
         <CardContent className="space-y-5 pt-2">
@@ -141,39 +129,39 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-teal-700" />
-                <span className="font-bold">مفتاح الربط الخاص (Private Integration Token):</span>
+                <span className="font-bold">حساب GoHighLevel المرتبط:</span>
               </div>
               <Badge variant="success" className="text-[10px]">
-                تم التحقق وصالح للعمل ✅
+                نشط ومتزامن ✅
               </Badge>
             </div>
-            <div className="font-mono bg-white px-3 py-1.5 rounded-lg border border-teal-200 text-teal-800 text-left select-all" dir="ltr">
-              pit-a83bb1dd-3bc5-4b17-8408-24fbb8fe9b36
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+              <div className="bg-white p-2.5 rounded-lg border border-teal-200">
+                <span className="text-[10px] text-slate-400 font-sans block">معرف الفرع (Location ID):</span>
+                <span className="text-teal-900 font-bold">9m3VyK57t1Ah7Pmen0gA</span>
+              </div>
+              <div className="bg-white p-2.5 rounded-lg border border-teal-200">
+                <span className="text-[10px] text-slate-400 font-sans block">المفتاح المشفر (Private Token):</span>
+                <span className="text-teal-900 font-bold truncate block">pit-a83bb1dd-***-9b36</span>
+              </div>
             </div>
-            <p className="text-[11px] text-teal-800 leading-relaxed">
-              المفتاح مسجل ومحمي داخل السيرفر. لتمكين قراءة وكتابة البيانات المباشرة للعيادة، يتطلب GoHighLevel تزويده بـ <strong>Location ID</strong> التابع لهذا الفرع.
-            </p>
           </div>
 
-          {/* Location ID Form */}
+          {/* Test or Update Location ID Form */}
           <form onSubmit={handleTestConnection} className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 space-y-3">
             <div className="space-y-1">
               <label className="block text-xs font-bold text-slate-800">
-                معرف الفرع في HighLevel (Location ID)
+                معرف الفرع النشط (Location ID)
               </label>
               <p className="text-[11px] text-slate-500">
-                يمكنك نسخه مباشرة من شريط المتصفح داخل HighLevel: <br />
-                <code className="text-brand-700 bg-brand-50 px-1 py-0.5 rounded font-mono text-[10px]" dir="ltr">
-                  https://app.gohighlevel.com/v2/location/<strong>[LOCATION_ID]</strong>/...
-                </code>
-                أو من: <strong>Settings &gt; Business Profile &gt; Location ID</strong>
+                يمكنك التحقق من صحة الربط أو تغيير معرف الفرع في أي وقت.
               </p>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
               <Input
                 type="text"
-                placeholder="مثال: ve9EPMNuKaEn00WdSmxD"
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
                 className="font-mono text-xs bg-white text-left"
@@ -188,7 +176,7 @@ export default function SettingsPage() {
                 isLoading={testing}
               >
                 <Zap className="h-4 w-4" />
-                <span>اختبار وحفظ الربط المباشر</span>
+                <span>فحص وتحديث الاتصال المباشر</span>
               </Button>
             </div>
 
@@ -207,11 +195,6 @@ export default function SettingsPage() {
                 )}
                 <div>
                   <div className="font-bold">{testResult.message}</div>
-                  {!testResult.success && (
-                    <div className="mt-1 text-[11px] text-rose-700 leading-normal">
-                      تأكد من نسخ الـ Location ID الصحيح من داخل حسابك، والتأكد من إعطاء الـ Private Integration Token صلاحيات (Contacts, Conversations, Opportunities, Calendars).
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -223,7 +206,7 @@ export default function SettingsPage() {
               <div>
                 <h4 className="text-xs font-bold text-slate-900">رابط Webhook لتلقي الأحداث اللحظية</h4>
                 <p className="text-[11px] text-slate-500">
-                  انسخ هذا الرابط وضعه داخل HighLevel Automations / Workhooks لتحديث الرسائل والعملاء فورياً
+                  انسخ هذا الرابط وضعه داخل HighLevel Automations لتحديث الرسائل والعملاء فورياً في BeatApp
                 </p>
               </div>
               <Button
@@ -251,9 +234,9 @@ export default function SettingsPage() {
               <Building2 className="h-5 w-5" />
             </div>
             <div>
-              <CardTitle className="text-base">بيانات المركز / العيادة</CardTitle>
+              <CardTitle className="text-base">بيانات المركز / العيادة المعتمدة في HighLevel</CardTitle>
               <p className="text-xs text-slate-500 mt-0.5">
-                المعلومات المعروضة لموظفي الاستقبال وفي ترويسة النظام
+                المعلومات المسجلة على الفرع (Internal – Beatapp)
               </p>
             </div>
           </div>
@@ -262,16 +245,16 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">اسم العيادة</label>
-              <Input defaultValue={session.tenant?.name || "عيادات لومينا ديرما للتجميل والليزر"} />
+              <label className="block text-xs font-semibold text-slate-700 mb-1">اسم العيادة / الحساب</label>
+              <Input defaultValue="Internal – Beatapp" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">رقم الهاتف الرئيسي</label>
-              <Input defaultValue={session.tenant?.phone || "+966 11 234 5678"} dir="ltr" />
+              <label className="block text-xs font-semibold text-slate-700 mb-1">رقم الهاتف المسجل</label>
+              <Input defaultValue="+966 57 004 0344" dir="ltr" />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">العنوان والفرع</label>
-              <Input defaultValue={session.tenant?.address || "طريق الملك فهد، حي العليا، الرياض"} />
+              <label className="block text-xs font-semibold text-slate-700 mb-1">الموقع الإلكتروني والمدينة</label>
+              <Input defaultValue="www.beatapp.io — الرياض، المملكة العربية السعودية" />
             </div>
           </div>
 

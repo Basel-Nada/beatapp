@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getHighLevelConfig } from "@/services/highlevel/client";
 import fs from "fs";
 import path from "path";
 
@@ -13,21 +12,22 @@ export interface StoredLocation {
   isDefault?: boolean;
 }
 
-// In-memory / persistent locations list
+const DEFAULT_LOCATION_ID = "9m3VyK57t1Ah7Pmen0gA";
+
 let storedLocations: StoredLocation[] = [
   {
     id: "loc-1",
-    name: "عيادات لومينا ديرما للتجميل (فرع العليا)",
-    locationId: process.env.HIGHLEVEL_LOCATION_ID || "loc_demo_lumina_riyadh",
-    phone: "+966 11 234 5678",
-    address: "طريق الملك فهد، العليا، الرياض",
+    name: "Internal – Beatapp",
+    locationId: DEFAULT_LOCATION_ID,
+    phone: "+966 57 004 0344",
+    address: "الرياض، المملكة العربية السعودية",
     city: "الرياض",
     isDefault: true,
   },
 ];
 
 export async function GET() {
-  const activeLocationId = process.env.HIGHLEVEL_LOCATION_ID || storedLocations[0].locationId;
+  const activeLocationId = process.env.HIGHLEVEL_LOCATION_ID || DEFAULT_LOCATION_ID;
   return NextResponse.json({
     locations: storedLocations,
     activeLocationId,
@@ -37,9 +37,9 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, name, locationId, phone, address, city, agencyToken } = body;
+    const { action, name, locationId, phone, address, city } = body;
 
-    // Action 1: Connect an existing Location
+    // Connect an existing Location
     if (action === "connect_existing") {
       if (!locationId || !locationId.trim()) {
         return NextResponse.json(
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       const cleanLocId = locationId.trim();
       const existing = storedLocations.find((l) => l.locationId === cleanLocId);
 
-      const clinicName = name?.trim() || `عيادة (${cleanLocId.slice(0, 8)})`;
+      const clinicName = name?.trim() || `فرع (${cleanLocId.slice(0, 8)})`;
       const newLoc: StoredLocation = {
         id: `loc-${Date.now()}`,
         name: clinicName,
@@ -66,7 +66,6 @@ export async function POST(req: NextRequest) {
         storedLocations.push(newLoc);
       }
 
-      // Update current active location in process.env and .env.local
       process.env.HIGHLEVEL_LOCATION_ID = cleanLocId;
       process.env.DEMO_MODE = "false";
 
@@ -91,76 +90,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Action 2: Create a brand new Location via HighLevel Agency API
-    if (action === "create_new") {
-      const tokenToUse = agencyToken || process.env.HIGHLEVEL_PRIVATE_TOKEN;
-
-      // Attempt to provision on HighLevel v2 API: POST /locations/
-      try {
-        const ghlRes = await fetch("https://services.leadconnectorhq.com/locations/", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${tokenToUse}`,
-            Version: "2021-07-28",
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            name: name || "عيادة تجميل جديدة",
-            phone: phone || "+966500000000",
-            address: address || "المقر الرئيسي",
-            city: city || "الرياض",
-            country: "SA",
-            timezone: "Asia/Riyadh",
-          }),
-        });
-
-        const ghlData = await ghlRes.json().catch(() => ({}));
-
-        if (ghlRes.ok && ghlData.id) {
-          const generatedLocationId = ghlData.id;
-          const createdLoc: StoredLocation = {
-            id: `loc-${Date.now()}`,
-            name: name || "العيادة الجديدة",
-            locationId: generatedLocationId,
-            phone,
-            address,
-            city,
-            isDefault: true,
-          };
-          storedLocations.push(createdLoc);
-
-          process.env.HIGHLEVEL_LOCATION_ID = generatedLocationId;
-          process.env.DEMO_MODE = "false";
-
-          return NextResponse.json({
-            success: true,
-            message: "تم إنشاء حساب العيادة الجديد بنجاح على GoHighLevel وربطه فورياً!",
-            location: createdLoc,
-            highLevelResponse: ghlData,
-          });
-        } else {
-          // If the token lacks Agency-level locations.write scope, explain clearly
-          const isUnauthorized = ghlRes.status === 401 || ghlRes.status === 403;
-          return NextResponse.json({
-            success: false,
-            needsAgencyToken: isUnauthorized,
-            message: isUnauthorized
-              ? "مفتاح الربط الحالي هو مفتاح فرعي (Sub-Account Token) ولا يملك صلاحية إنشاء فروع جديدة من الصفر. لإنشاء فرع تلقائياً، يلزم مفتاح من حساب الوكالة الرئيسي (Agency Token) مع صلاحية locations.write. بدلاً من ذلك، يمكنك إنشاء الفرع في HighLevel ونسخ الـ Location ID وربطه هنا في ثانية واحدة."
-              : ghlData.message || "تعذر إنشاء الفرع في HighLevel",
-            details: ghlData,
-          });
-        }
-      } catch (err: unknown) {
-        const error = err as Error;
-        return NextResponse.json({
-          success: false,
-          message: `فشل الاتصال بـ HighLevel: ${error.message}`,
-        });
-      }
-    }
-
-    // Action 3: Switch active location
+    // Switch active location
     if (action === "switch") {
       const target = storedLocations.find((l) => l.locationId === locationId);
       if (target) {
