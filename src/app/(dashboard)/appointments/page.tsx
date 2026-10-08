@@ -20,8 +20,15 @@ import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { formatArabicDate, formatArabicTime } from "@/lib/date";
 import { Appointment } from "@/types";
+import { useSearchParams } from "next/navigation";
 
-export default function AppointmentsPage() {
+function AppointmentsContent() {
+  const searchParams = useSearchParams();
+  const qContactId = searchParams.get("contactId");
+  const qName = searchParams.get("name");
+  const qPhone = searchParams.get("phone");
+  const qService = searchParams.get("service");
+
   const [appointments, setAppointments] = React.useState<Appointment[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [viewMode, setViewMode] = React.useState<"today" | "week" | "month">("today");
@@ -29,6 +36,7 @@ export default function AppointmentsPage() {
 
   // New appointment form state
   const [formData, setFormData] = React.useState({
+    contactId: "",
     contactName: "",
     contactPhone: "",
     service: "ليزر إزالة شعر الجسم كامل",
@@ -37,6 +45,38 @@ export default function AppointmentsPage() {
     notes: "",
   });
   const [booking, setBooking] = React.useState(false);
+
+  // Auto-handle query params to prefill and open booking modal
+  React.useEffect(() => {
+    if (qName || qPhone || qContactId) {
+      if (qName || qPhone) {
+        setFormData((prev) => ({
+          ...prev,
+          contactId: qContactId || "",
+          contactName: qName || prev.contactName,
+          contactPhone: qPhone || prev.contactPhone,
+          service: qService || prev.service,
+        }));
+        setIsBookModalOpen(true);
+      } else if (qContactId) {
+        fetch(`/api/contacts/${qContactId}`)
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.contact) {
+              setFormData((prev) => ({
+                ...prev,
+                contactId: data.contact.id,
+                contactName: data.contact.name || prev.contactName,
+                contactPhone: data.contact.phone || prev.contactPhone,
+                service: data.contact.serviceInterest || prev.service,
+              }));
+              setIsBookModalOpen(true);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [qContactId, qName, qPhone, qService]);
 
   const fetchAppointments = async () => {
     try {
@@ -70,6 +110,7 @@ export default function AppointmentsPage() {
       if (res.ok) {
         setIsBookModalOpen(false);
         setFormData({
+          contactId: "",
           contactName: "",
           contactPhone: "",
           service: "ليزر إزالة شعر الجسم كامل",
@@ -327,5 +368,13 @@ export default function AppointmentsPage() {
         </form>
       </Modal>
     </div>
+  );
+}
+
+export default function AppointmentsPage() {
+  return (
+    <React.Suspense fallback={<div className="py-20 text-center text-xs text-slate-400">جاري تحميل المواعيد...</div>}>
+      <AppointmentsContent />
+    </React.Suspense>
   );
 }

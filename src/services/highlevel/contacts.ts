@@ -89,16 +89,53 @@ export const ContactsService = {
   async getContactById(id: string, locationId?: string): Promise<Contact | null> {
     const config = getHighLevelConfig(locationId);
 
-    if (config.isDemoMode) {
+    // If ID starts with mock prefix 'cnt-', immediately check mockStore
+    if (id.startsWith("cnt-") || config.isDemoMode) {
       const found = mockStore.getContactById(id);
-      return found || null;
+      if (found) return found;
     }
 
     try {
       const res = await highLevelRequest<GhlSingleContactResponse>(`/contacts/${id}`, {}, locationId);
       const ghl = res.contact;
+      if (!ghl) {
+        const found = mockStore.getContactById(id);
+        return found || null;
+      }
       const name = ghl.contactName || `${ghl.firstName || ""} ${ghl.lastName || ""}`.trim() || "عميل بدون اسم";
       
+      // Try to fetch notes for this contact
+      let notes: Array<{ id: string; contactId: string; body: string; authorName: string; createdAt: string }> = [];
+      try {
+        const notesRes = await highLevelRequest<{ notes: Array<{ id: string; body: string; dateAdded?: string }> }>(
+          `/contacts/${id}/notes`,
+          {},
+          locationId
+        );
+        notes = (notesRes.notes || []).map((n) => ({
+          id: n.id,
+          contactId: id,
+          body: n.body,
+          authorName: "فريق العيادة",
+          createdAt: n.dateAdded || new Date().toISOString(),
+        }));
+      } catch {
+        // Fallback to local notes in mock store if any
+        const local = mockStore.getContactById(id);
+        if (local?.notes) notes = local.notes;
+      }
+
+      // Check if local notes were added in mockStore
+      const localStoreContact = mockStore.getContactById(id);
+      if (localStoreContact?.notes && localStoreContact.notes.length > 0) {
+        const existingIds = new Set(notes.map((n) => n.id));
+        for (const ln of localStoreContact.notes) {
+          if (!existingIds.has(ln.id)) {
+            notes.unshift(ln);
+          }
+        }
+      }
+
       return {
         id: ghl.id,
         locationId: ghl.locationId,
@@ -114,12 +151,13 @@ export const ContactsService = {
         lastContactDate: ghl.dateUpdated || ghl.dateAdded || new Date().toISOString(),
         totalSpent: 0,
         tags: ghl.tags || [],
-        notes: [],
+        notes,
         createdAt: ghl.dateAdded || new Date().toISOString(),
         updatedAt: ghl.dateUpdated || new Date().toISOString(),
       };
     } catch {
-      return null;
+      const found = mockStore.getContactById(id);
+      return found || null;
     }
   },
 
@@ -167,19 +205,25 @@ export const ContactsService = {
   async addNote(contactId: string, noteBody: string, authorName: string = "الموظف", locationId?: string): Promise<void> {
     const config = getHighLevelConfig(locationId);
 
-    if (config.isDemoMode) {
-      mockStore.addContactNote(contactId, noteBody, authorName);
+    // Always record locally in mockStore for fast UI response
+    mockStore.addContactNote(contactId, noteBody, authorName);
+
+    if (config.isDemoMode || contactId.startsWith("cnt-")) {
       return;
     }
 
     // HighLevel notes endpoint
-    await highLevelRequest(
-      `/contacts/${contactId}/notes`,
-      {
-        method: "POST",
-        body: JSON.stringify({ body: noteBody }),
-      },
-      config.locationId
-    );
+    try {
+      await highLevelRequest(
+        `/contacts/${contactId}/notes`,
+        {
+          method: "POST",
+          body: JSON.stringify({ body: noteBody }),
+        },
+        config.locationId
+      );
+    } catch {
+      // Handled via local store
+    }
   },
 };

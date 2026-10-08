@@ -31,6 +31,7 @@ export interface Message {
   direction: "inbound" | "outbound";
   channel: ChannelType;
   status: "sent" | "delivered" | "read" | "failed";
+  errorMessage?: string;
   createdAt: string;
   senderName?: string;
 }
@@ -138,3 +139,14 @@ export interface DashboardMetrics {
   todayAppointments: Appointment[];
   needsFollowupLeads: Contact[];
 }
+
+export interface AppNotification {
+  id: string;
+  title: string;
+  description: string;
+  timestamp: string;
+  isRead: boolean;
+  type: "lead" | "appointment" | "message" | "alert";
+  linkUrl?: string;
+}
+

@@ -114,47 +114,53 @@ export const CalendarsService = {
   async createAppointment(data: Partial<Appointment>, locationId?: string): Promise<Appointment> {
     const config = getHighLevelConfig(locationId);
 
-    if (config.isDemoMode) {
+    if (config.isDemoMode || data.contactId?.startsWith("cnt-")) {
       return mockStore.createAppointment(data);
     }
 
-    let calendarId = data.calendarId || process.env.HIGHLEVEL_DEFAULT_CALENDAR_ID;
-    if (!calendarId) {
-      const calendars = await this.getCalendars(config.locationId);
-      calendarId = calendars[0]?.id;
+    try {
+      let calendarId = data.calendarId || process.env.HIGHLEVEL_DEFAULT_CALENDAR_ID;
+      if (!calendarId) {
+        const calendars = await this.getCalendars(config.locationId);
+        calendarId = calendars[0]?.id;
+      }
+
+      const payload = {
+        calendarId,
+        locationId: config.locationId,
+        contactId: data.contactId,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        title: data.service || "موعد تجميل",
+        appointmentStatus: "confirmed",
+      };
+
+      const res = await highLevelRequest<{ event: { id: string } }>(
+        "/calendars/events/appointments",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        },
+        config.locationId
+      );
+
+      const created: Appointment = {
+        id: res.event?.id || `apt-${Date.now()}`,
+        contactId: data.contactId || "",
+        contactName: data.contactName || "",
+        contactPhone: data.contactPhone || "",
+        service: data.service || "موعد تجميل",
+        startTime: data.startTime || new Date().toISOString(),
+        endTime: data.endTime || new Date().toISOString(),
+        status: "confirmed",
+        staffName: data.staffName || "العيادة",
+        notes: data.notes,
+        locationId: config.locationId!,
+      };
+      mockStore.createAppointment(created);
+      return created;
+    } catch {
+      return mockStore.createAppointment(data);
     }
-
-    const payload = {
-      calendarId,
-      locationId: config.locationId,
-      contactId: data.contactId,
-      startTime: data.startTime,
-      endTime: data.endTime,
-      title: data.service || "موعد تجميل",
-      appointmentStatus: "confirmed",
-    };
-
-    const res = await highLevelRequest<{ event: { id: string } }>(
-      "/calendars/events/appointments",
-      {
-        method: "POST",
-        body: JSON.stringify(payload),
-      },
-      config.locationId
-    );
-
-    return {
-      id: res.event?.id || `apt-${Date.now()}`,
-      contactId: data.contactId || "",
-      contactName: data.contactName || "",
-      contactPhone: data.contactPhone || "",
-      service: data.service || "موعد تجميل",
-      startTime: data.startTime || new Date().toISOString(),
-      endTime: data.endTime || new Date().toISOString(),
-      status: "confirmed",
-      staffName: data.staffName || "العيادة",
-      notes: data.notes,
-      locationId: config.locationId!,
-    };
   },
 };

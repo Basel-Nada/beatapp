@@ -4,6 +4,9 @@ import { ConversationsService } from "@/services/highlevel/conversations";
 import { OpportunitiesService } from "@/services/highlevel/opportunities";
 import { CalendarsService } from "@/services/highlevel/calendars";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET() {
   try {
     const [contacts, conversations, opportunities, appointments] = await Promise.all([

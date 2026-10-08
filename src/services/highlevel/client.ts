@@ -64,6 +64,7 @@ export async function highLevelRequest<T>(
 
   try {
     const res = await fetch(url, {
+      cache: "no-store",
       ...options,
       headers,
     });

@@ -22,6 +22,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
+import { Modal } from "@/components/ui/modal";
+import { Input } from "@/components/ui/input";
 import { formatRelativeArabicTime, formatArabicDate, formatArabicTime } from "@/lib/date";
 import { formatCurrency } from "@/lib/utils";
 import { Contact, Opportunity, Appointment } from "@/types";
@@ -38,6 +40,17 @@ export default function CustomerProfilePage() {
   const [newNote, setNewNote] = React.useState("");
   const [submittingNote, setSubmittingNote] = React.useState(false);
 
+  // Appointment booking modal state
+  const [isBookModalOpen, setIsBookModalOpen] = React.useState(false);
+  const [bookingLoading, setBookingLoading] = React.useState(false);
+  const [bookSuccessMsg, setBookSuccessMsg] = React.useState<string | null>(null);
+  const [bookFormData, setBookFormData] = React.useState({
+    service: "جلسة هيدرافاشيل نضارة بلاتينيوم",
+    startTime: new Date(Date.now() + 2 * 3600 * 1000).toISOString().substring(0, 16),
+    staffName: "د. نورة الشمري",
+    notes: "",
+  });
+
   const fetchContactData = React.useCallback(async () => {
     try {
       const [cRes, oppRes, aptRes] = await Promise.all([
@@ -46,9 +59,22 @@ export default function CustomerProfilePage() {
         fetch("/api/appointments").then((r) => r.json()),
       ]);
 
-      setContact(cRes.contact || null);
-      setOpportunities((oppRes.opportunities || []).filter((o: Opportunity) => o.contactId === contactId));
-      setAppointments((aptRes.appointments || []).filter((a: Appointment) => a.contactId === contactId));
+      const contactObj = cRes.contact || null;
+      setContact(contactObj);
+      setOpportunities(
+        (oppRes.opportunities || []).filter(
+          (o: Opportunity) =>
+            o.contactId === contactId ||
+            (contactObj && o.contactName && o.contactName.trim() === contactObj.name?.trim())
+        )
+      );
+      setAppointments(
+        (aptRes.appointments || []).filter(
+          (a: Appointment) =>
+            a.contactId === contactId ||
+            (contactObj && a.contactName && a.contactName.trim() === contactObj.name?.trim())
+        )
+      );
     } catch (e) {
       console.error(e);
     } finally {
@@ -79,6 +105,39 @@ export default function CustomerProfilePage() {
       console.error(e);
     } finally {
       setSubmittingNote(false);
+    }
+  };
+
+  const handleBookAppointment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contact) return;
+    setBookingLoading(true);
+    setBookSuccessMsg(null);
+    try {
+      const res = await fetch("/api/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: contact.id,
+          contactName: contact.name,
+          contactPhone: contact.phone,
+          service: bookFormData.service,
+          startTime: new Date(bookFormData.startTime).toISOString(),
+          endTime: new Date(new Date(bookFormData.startTime).getTime() + 60 * 60 * 1000).toISOString(),
+          staffName: bookFormData.staffName,
+          notes: bookFormData.notes,
+        }),
+      });
+      if (res.ok) {
+        setIsBookModalOpen(false);
+        setBookSuccessMsg("تم تأكيد وحجز الموعد بنجاح في تقويم HighLevel!");
+        setTimeout(() => setBookSuccessMsg(null), 4500);
+        fetchContactData();
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBookingLoading(false);
     }
   };
 
@@ -114,6 +173,13 @@ export default function CustomerProfilePage() {
         </Link>
       </div>
 
+      {bookSuccessMsg && (
+        <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2.5 animate-in fade-in">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+          <span className="font-semibold">{bookSuccessMsg}</span>
+        </div>
+      )}
+
       {/* Customer Header Card */}
       <Card className="p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -139,12 +205,23 @@ export default function CustomerProfilePage() {
                 <span>مراسلة واتساب</span>
               </Button>
             </Link>
-            <Link href={`/appointments?contactId=${contact.id}`}>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <Calendar className="h-3.5 w-3.5 ml-1" />
-                <span>حجز موعد</span>
-              </Button>
-            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => {
+                setBookFormData({
+                  service: contact.serviceInterest || "جلسة هيدرافاشيل نضارة بلاتينيوم",
+                  startTime: new Date(Date.now() + 2 * 3600 * 1000).toISOString().substring(0, 16),
+                  staffName: contact.assignedStaff || "د. نورة الشمري",
+                  notes: "",
+                });
+                setIsBookModalOpen(true);
+              }}
+            >
+              <Calendar className="h-3.5 w-3.5 ml-1" />
+              <span>حجز موعد</span>
+            </Button>
           </div>
         </div>
       </Card>
@@ -284,9 +361,21 @@ export default function CustomerProfilePage() {
                 <Calendar className="h-4 w-4 text-sky-600" />
                 <CardTitle className="text-sm">سجل المواعيد والزيارات</CardTitle>
               </div>
-              <Link href="/appointments">
-                <span className="text-xs text-brand-700 hover:underline">حجز موعد جديد</span>
-              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  setBookFormData({
+                    service: contact.serviceInterest || "جلسة هيدرافاشيل نضارة بلاتينيوم",
+                    startTime: new Date(Date.now() + 2 * 3600 * 1000).toISOString().substring(0, 16),
+                    staffName: contact.assignedStaff || "د. نورة الشمري",
+                    notes: "",
+                  });
+                  setIsBookModalOpen(true);
+                }}
+                className="text-xs text-brand-700 hover:underline font-semibold"
+              >
+                حجز موعد جديد
+              </button>
             </CardHeader>
             <CardContent>
               {appointments.length > 0 ? (
@@ -320,6 +409,99 @@ export default function CustomerProfilePage() {
           </Card>
         </div>
       </div>
+
+      {/* Book Appointment Modal for this Contact */}
+      <Modal
+        isOpen={isBookModalOpen}
+        onClose={() => setIsBookModalOpen(false)}
+        title={`حجز موعد جديد لـ: ${contact.name}`}
+        description="سيتم إدراج الموعد في تقويم HighLevel وتحديث جدول العيادة تلقائياً"
+      >
+        <form onSubmit={handleBookAppointment} className="space-y-4">
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-between text-xs">
+            <div>
+              <span className="text-slate-500 block">العميل المحدد:</span>
+              <span className="font-bold text-slate-900">{contact.name}</span>
+            </div>
+            <div className="text-left font-mono" dir="ltr">
+              <span className="text-slate-600">{contact.phone}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              الخدمة التجميلية *
+            </label>
+            <select
+              value={bookFormData.service}
+              onChange={(e) => setBookFormData({ ...bookFormData, service: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600"
+            >
+              <option value="جلسة هيدرافاشيل نضارة بلاتينيوم">جلسة هيدرافاشيل نضارة بلاتينيوم</option>
+              <option value="ليزر إزالة شعر الجسم كامل">ليزر إزالة شعر الجسم كامل</option>
+              <option value="حقن بوتوكس وتجاعيد الجبهة">حقن بوتوكس وتجاعيد الجبهة</option>
+              <option value="فيلر شفايف روسي">فيلر شفايف روسي</option>
+              <option value="جلسة بلازما الشعر PRP">جلسة بلازما الشعر PRP</option>
+              <option value="جلسة ليزر كربوني للوجه">جلسة ليزر كربوني للوجه</option>
+              <option value="استشارة تجميلية عامة">استشارة تجميلية عامة</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              التاريخ والوقت *
+            </label>
+            <Input
+              type="datetime-local"
+              required
+              value={bookFormData.startTime}
+              onChange={(e) => setBookFormData({ ...bookFormData, startTime: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              الأخصائي / الطبيب
+            </label>
+            <select
+              value={bookFormData.staffName}
+              onChange={(e) => setBookFormData({ ...bookFormData, staffName: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600"
+            >
+              <option value="د. نورة الشمري">د. نورة الشمري</option>
+              <option value="د. هدى السلمان">د. هدى السلمان</option>
+              <option value="أخصائية رغد">أخصائية رغد</option>
+              <option value="أخصائية ندى">أخصائية ندى</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              ملاحظات الموعد
+            </label>
+            <Input
+              type="text"
+              placeholder="مثال: الجلسة الثانية في الباقة، تفضل الانتظار في الجناح الخاص"
+              value={bookFormData.notes}
+              onChange={(e) => setBookFormData({ ...bookFormData, notes: e.target.value })}
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsBookModalOpen(false)}
+            >
+              إلغاء
+            </Button>
+            <Button type="submit" variant="primary" size="sm" isLoading={bookingLoading}>
+              تأكيد وتثبيت الموعد
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -10,10 +10,13 @@ interface GhlConversationsSearchResponse {
     lastMessageBody?: string;
     lastMessageDate?: number;
     lastMessageType?: string;
+    lastMessageDirection?: string;
     unreadCount?: number;
     contactName?: string;
     fullName?: string;
     phone?: string;
+    dateAdded?: number;
+    dateUpdated?: number;
   }>;
   total?: number;
 }
@@ -27,6 +30,7 @@ interface GhlMessagesResponse {
       dateAdded: string;
       messageType: string;
       status: string;
+      error?: string;
     }>;
   };
 }
@@ -46,24 +50,36 @@ export const ConversationsService = {
         config.locationId
       );
 
-      return (res.conversations || []).map((c) => {
+      const list = (res.conversations || []).map((c) => {
         const contactName = c.contactName || c.fullName || "عميل غير معروف";
         const isWhatsapp = (c.lastMessageType || "").toLowerCase().includes("whatsapp");
+
+        // Format body for snippet (strip markdown links if huge email tracking)
+        let snippet = c.lastMessageBody || "";
+        if (snippet.startsWith("[http") || snippet.includes("email-tracking")) {
+          snippet = "رسالة بريد إلكتروني آلية";
+        }
+
+        const rawDate = c.lastMessageDate || c.dateUpdated || c.dateAdded;
+        const lastMessageDate = rawDate ? new Date(rawDate).toISOString() : new Date().toISOString();
 
         return {
           id: c.id,
           contactId: c.contactId,
           contactName,
           contactPhone: c.phone || "",
-          lastMessageBody: c.lastMessageBody || "",
-          lastMessageDate: c.lastMessageDate ? new Date(c.lastMessageDate).toISOString() : new Date().toISOString(),
-          lastMessageDirection: "inbound",
+          lastMessageBody: snippet,
+          lastMessageDate,
+          lastMessageDirection: (c.lastMessageDirection === "outbound" ? "outbound" : "inbound") as "inbound" | "outbound",
           unreadCount: c.unreadCount || 0,
           channel: (isWhatsapp ? "whatsapp" : "whatsapp") as Conversation["channel"],
-          status: "open",
+          status: "open" as const,
           opportunityStage: "قيد المتابعة",
         };
       });
+
+      // ALWAYS sort conversations descending by latest activity date so newest is at the top
+      return list.sort((a, b) => new Date(b.lastMessageDate).getTime() - new Date(a.lastMessageDate).getTime());
     } catch {
       return mockStore.getConversations();
     }
@@ -84,18 +100,31 @@ export const ConversationsService = {
       );
 
       const raw = res.messages?.messages || [];
-      // Sort chronologically ascending
+      // Sort chronologically ascending for the chat thread
       const sorted = [...raw].sort((a, b) => new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime());
 
-      return sorted.map((m) => ({
-        id: m.id,
-        conversationId,
-        body: m.body,
-        direction: m.direction === "inbound" ? "inbound" : "outbound",
-        channel: "whatsapp",
-        status: m.status === "failed" ? "failed" : "delivered",
-        createdAt: m.dateAdded || new Date().toISOString(),
-      }));
+      return sorted.map((m) => {
+        let cleanBody = m.body || "";
+        if (cleanBody.includes("email-tracking") && cleanBody.includes("unsubscribe")) {
+          cleanBody = "📧 رسالة تسويقية آلية مسجلة في سجل العميل";
+        }
+
+        let errorMessage = m.error;
+        if (errorMessage === "Agency has insufficient funds") {
+          errorMessage = "فشل التسليم: نفاد رصيد الرسائل في حساب HighLevel (Agency has insufficient funds)";
+        }
+
+        return {
+          id: m.id,
+          conversationId,
+          body: cleanBody,
+          direction: m.direction === "inbound" ? "inbound" : "outbound",
+          channel: "whatsapp",
+          status: (m.status === "failed" ? "failed" : m.status === "delivered" ? "delivered" : "sent") as Message["status"],
+          errorMessage,
+          createdAt: m.dateAdded || new Date().toISOString(),
+        };
+      });
     } catch {
       return mockStore.getMessages(conversationId);
     }
@@ -114,7 +143,6 @@ export const ConversationsService = {
       return mockStore.sendMessage(conversationId, body, senderName);
     }
 
-    // HighLevel requires contactId. If missing, look it up from conversation search
     let targetContactId = contactId;
     if (!targetContactId) {
       try {

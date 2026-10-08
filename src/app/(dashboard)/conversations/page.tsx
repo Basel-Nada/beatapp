@@ -10,8 +10,10 @@ import {
   Sparkles,
   Paperclip,
   CheckCheck,
+  Check,
   MessageCircle,
   AlertCircle,
+  AlertTriangle,
   RefreshCw,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
@@ -22,7 +24,7 @@ import { Conversation, Message } from "@/types";
 
 const QUICK_REPLIES = [
   "أهلاً بك في بيتاب! كيف نقدر نخدمك اليوم؟ 🌸",
-  "تم استلام طلبكم وسيتم التواصل معكم لتأكيد التفاصيل ✨",
+  "تم استلام طلبكم وسيتم التواصل معكم لتأكيد الموعد ✨",
   "موقعنا: طريق الملك فهد، العليا، الرياض. يسعدنا استقبالكم!",
   "هل يناسبك موعد اليوم الساعة 5:00 مساءً؟",
 ];
@@ -53,10 +55,17 @@ function ConversationsContent() {
     try {
       const res = await fetch("/api/conversations");
       const data = await res.json();
-      const list = data.conversations || [];
-      setConversations(list);
-      if (!selectedId && list.length > 0) {
-        setSelectedId(list[0].id);
+      const list: Conversation[] = data.conversations || [];
+
+      // Sort by newest activity date
+      const sorted = [...list].sort(
+        (a, b) => new Date(b.lastMessageDate).getTime() - new Date(a.lastMessageDate).getTime()
+      );
+
+      setConversations(sorted);
+
+      if (!selectedId && sorted.length > 0) {
+        setSelectedId(sorted[0].id);
       }
     } catch (err) {
       console.error(err);
@@ -65,12 +74,12 @@ function ConversationsContent() {
     }
   }, [selectedId]);
 
-  // Initial fetch + Polling every 8s for conversations list
+  // Initial fetch + Polling every 6s for conversations list
   React.useEffect(() => {
     fetchConversations(false);
     const interval = setInterval(() => {
       fetchConversations(true);
-    }, 8000);
+    }, 6000);
     return () => clearInterval(interval);
   }, [fetchConversations]);
 
@@ -98,14 +107,19 @@ function ConversationsContent() {
     fetchMessages(selectedId, false);
     setSendError(null);
 
-    // Live auto-poll for new messages every 4 seconds
+    // Live auto-poll for new messages every 3.5 seconds
     const msgInterval = setInterval(() => {
       fetchMessages(selectedId, true);
-    }, 4000);
+    }, 3500);
     return () => clearInterval(msgInterval);
   }, [selectedId, fetchMessages]);
 
   const selectedConv = conversations.find((c) => c.id === selectedId);
+
+  // Check if any message failed due to insufficient funds
+  const hasInsufficientFunds = messages.some(
+    (m) => m.status === "failed" && m.errorMessage?.includes("insufficient funds")
+  );
 
   // Handle Send Message
   const handleSendMessage = async (textToSend?: string) => {
@@ -133,14 +147,23 @@ function ConversationsContent() {
         setInputText("");
         setTimeout(() => scrollToBottom(true), 50);
 
-        // Update list snippet
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === selectedId
-              ? { ...c, lastMessageBody: text, lastMessageDate: new Date().toISOString() }
-              : c
-          )
-        );
+        // Immediately move active conversation to the very top of the list!
+        setConversations((prev) => {
+          const target = prev.find((c) => c.id === selectedId);
+          if (!target) return prev;
+          const updatedTarget: Conversation = {
+            ...target,
+            lastMessageBody: text,
+            lastMessageDate: new Date().toISOString(),
+          };
+          const others = prev.filter((c) => c.id !== selectedId);
+          return [updatedTarget, ...others];
+        });
+
+        // Trigger message refetch after 1.5s to capture actual delivery status from HighLevel
+        setTimeout(() => {
+          fetchMessages(selectedId, true);
+        }, 1500);
       } else {
         setSendError(data.error || data.details || "تعذر إرسال الرسالة عبر HighLevel");
       }
@@ -167,9 +190,9 @@ function ConversationsContent() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-slate-900">المحادثات</h2>
-                <span className="flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full font-medium">
+                <span className="flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full font-semibold">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>تحديث لايف</span>
+                  <span>مباشر لحظياً</span>
                 </span>
               </div>
               <span className="text-xs text-slate-500 font-medium">
@@ -177,7 +200,7 @@ function ConversationsContent() {
               </span>
             </div>
 
-            {/* Channel filter pills (Without SMS per user request) */}
+            {/* Channel filter pills (Without SMS) */}
             <div className="flex gap-1.5 overflow-x-auto pb-1">
               {[
                 { id: "all", label: "الكل" },
@@ -189,7 +212,7 @@ function ConversationsContent() {
                   onClick={() => setChannelFilter(f.id)}
                   className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors whitespace-nowrap ${
                     channelFilter === f.id
-                      ? "bg-brand-700 text-white"
+                      ? "bg-brand-700 text-white font-bold"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
@@ -224,16 +247,16 @@ function ConversationsContent() {
                         <span className="text-xs font-bold text-slate-900 truncate">
                           {conv.contactName}
                         </span>
-                        <span className="text-[10px] text-slate-400 shrink-0">
+                        <span className="text-[10px] text-slate-400 shrink-0 font-medium">
                           {formatRelativeArabicTime(conv.lastMessageDate)}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 truncate mb-1.5">
+                      <p className="text-xs text-slate-500 truncate mb-1.5 font-normal">
                         {conv.lastMessageBody || "بدون رسائل سابقة"}
                       </p>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
-                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
                             واتساب
                           </span>
                           {conv.opportunityStage && (
@@ -269,7 +292,7 @@ function ConversationsContent() {
                     <h3 className="text-sm font-bold text-slate-900">
                       {selectedConv.contactName}
                     </h3>
-                    <Badge variant="brand" className="text-[10px] py-0">
+                    <Badge variant="brand" className="text-[10px] py-0 font-bold">
                       واتساب
                     </Badge>
                   </div>
@@ -287,7 +310,7 @@ function ConversationsContent() {
                     <span>ملف العميل</span>
                   </Button>
                 </Link>
-                <Link href={`/appointments?contactId=${selectedConv.contactId}`}>
+                <Link href={`/appointments?contactId=${selectedConv.contactId}&name=${encodeURIComponent(selectedConv.contactName)}&phone=${encodeURIComponent(selectedConv.contactPhone || "")}`}>
                   <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
                     <Calendar className="h-3.5 w-3.5 ml-1" />
                     <span>حجز موعد</span>
@@ -295,6 +318,19 @@ function ConversationsContent() {
                 </Link>
               </div>
             </div>
+
+            {/* Insufficient Funds Warning Alert if applicable */}
+            {hasInsufficientFunds && (
+              <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                <div>
+                  <span className="font-bold">تنبيه رصيد الرسائل: </span>
+                  <span>
+                    محفظة الرسائل في حساب HighLevel غير مشحونة (Agency has insufficient funds). الرسائل تُسجل في المحادثة ولكن لن تسلم لهاتف العميل حتى يتم شحن رصيد الـ SMS/WhatsApp في GoHighLevel.
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Messages Scrollable Timeline */}
             <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50/40">
@@ -309,6 +345,8 @@ function ConversationsContent() {
               ) : (
                 messages.map((msg) => {
                   const isOutbound = msg.direction === "outbound";
+                  const isFailed = msg.status === "failed";
+
                   return (
                     <div
                       key={msg.id}
@@ -317,19 +355,41 @@ function ConversationsContent() {
                       <div
                         className={`max-w-[78%] sm:max-w-[65%] rounded-2xl px-4 py-2.5 text-xs shadow-soft ${
                           isOutbound
-                            ? "bg-brand-700 text-white rounded-tr-none"
+                            ? isFailed
+                              ? "bg-rose-700 text-white rounded-tr-none"
+                              : "bg-brand-700 text-white rounded-tr-none"
                             : "bg-white text-slate-800 border border-slate-200/80 rounded-tl-none"
                         }`}
                       >
                         <p className="leading-relaxed whitespace-pre-wrap">{msg.body}</p>
+                        
+                        {/* Delivery status indicator */}
                         <div
-                          className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-                            isOutbound ? "text-brand-200" : "text-slate-400"
+                          className={`mt-1.5 flex items-center justify-end gap-1.5 text-[10px] ${
+                            isOutbound ? (isFailed ? "text-rose-200" : "text-brand-200") : "text-slate-400"
                           }`}
                         >
                           <span>{formatArabicTime(msg.createdAt)}</span>
-                          {isOutbound && <CheckCheck className="h-3 w-3" />}
+                          {isOutbound && (
+                            <>
+                              {isFailed ? (
+                                <span className="inline-flex items-center gap-1 font-bold text-amber-300">
+                                  <span>فشل التسليم للواتساب</span>
+                                  <AlertCircle className="h-3 w-3" />
+                                </span>
+                              ) : (
+                                <CheckCheck className="h-3 w-3" />
+                              )}
+                            </>
+                          )}
                         </div>
+
+                        {/* Error reason tooltip text */}
+                        {isFailed && msg.errorMessage && (
+                          <div className="mt-1 pt-1 border-t border-rose-600/50 text-[10px] text-rose-100 font-sans">
+                            {msg.errorMessage}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
