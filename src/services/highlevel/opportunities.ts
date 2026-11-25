@@ -1,6 +1,7 @@
 import { Opportunity, PipelineStage } from "@/types";
-import { getHighLevelConfig, highLevelRequest } from "./client";
+import { getHighLevelConfig, highLevelRequest, clearApiCache } from "./client";
 import { mockStore } from "./mock-store";
+import { UsersService } from "./users";
 
 export interface HighLevelPipeline {
   id: string;
@@ -56,6 +57,19 @@ export const OpportunitiesService = {
             { id: "lost", name: "غير مهتم", position: 6 },
           ],
         },
+        {
+          id: "pipe-re-1",
+          name: "مسار الصفقات العقارية وحجز الوحدات",
+          stages: [
+            { id: "new_lead", name: "طلب عقار جديد", position: 0 },
+            { id: "contacted", name: "تأهيل وميزانية العميل", position: 1 },
+            { id: "consultation_booked", name: "جدولة معاينة ميدانية", position: 2 },
+            { id: "treatment_scheduled", name: "معاينة تمت وتفاوض", position: 3 },
+            { id: "interested", name: "حجز وقفل الوحدة 🔒", position: 4 },
+            { id: "won", name: "توقيع العقد وإفراغ الصك", position: 5 },
+            { id: "lost", name: "ملغي / غير مهتم", position: 6 },
+          ],
+        },
       ];
     }
 
@@ -71,7 +85,7 @@ export const OpportunitiesService = {
     }
   },
 
-  async getOpportunities(params?: { locationId?: string; pipelineId?: string }): Promise<Opportunity[]> {
+  async getOpportunities(params?: { locationId?: string; pipelineId?: string; assignedTo?: string; allowedContactIds?: Set<string> }): Promise<Opportunity[]> {
     const config = getHighLevelConfig(params?.locationId);
 
     if (config.isDemoMode) {
@@ -81,6 +95,7 @@ export const OpportunitiesService = {
     try {
       const q = new URLSearchParams({
         location_id: config.locationId!,
+        limit: "100",
       });
       if (params?.pipelineId) {
         q.set("pipeline_id", params.pipelineId);
@@ -88,11 +103,21 @@ export const OpportunitiesService = {
 
       const res = await highLevelRequest<GhlOpportunitySearchResponse>(
         `/opportunities/search?${q.toString()}`,
-        {},
+        { cacheTtlMs: 10 * 1000 },
         config.locationId
       );
 
-      return (res.opportunities || []).map((opp) => ({
+      const users = await UsersService.getUsers().catch(() => []);
+      const nameMap = new Map(users.map((u) => [u.id, u.name]));
+
+      let raw = res.opportunities || [];
+      if (params?.assignedTo) {
+        raw = raw.filter(
+          (o) => o.assignedTo === params.assignedTo || (o.contact?.id && params.allowedContactIds?.has(o.contact.id))
+        );
+      }
+
+      return raw.map((opp) => ({
         id: opp.id,
         contactId: opp.contact?.id || "",
         contactName: opp.contact?.name || opp.name || "عميل غير معروف",
@@ -100,12 +125,15 @@ export const OpportunitiesService = {
         service: opp.name,
         monetaryValue: opp.monetaryValue || 0,
         stageId: (opp.pipelineStageId || "new_lead") as Opportunity["stageId"],
-        assignedStaff: "فريق المبيعات",
+        assignedToId: opp.assignedTo || undefined,
+        assignedStaff: opp.assignedTo ? nameMap.get(opp.assignedTo) || "موظف" : "غير مسند",
+        status: opp.status || "open",
         lastActivityDate: opp.updatedAt || opp.createdAt || new Date().toISOString(),
         createdAt: opp.createdAt || new Date().toISOString(),
       }));
-    } catch {
-      return mockStore.getOpportunities();
+    } catch (e) {
+      console.error("Failed to load opportunities from BeatApp", e);
+      return [];
     }
   },
 
@@ -134,6 +162,7 @@ export const OpportunitiesService = {
         },
         config.locationId
       );
+      clearApiCache();
       return true;
     } catch {
       try {

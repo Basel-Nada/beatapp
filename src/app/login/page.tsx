@@ -8,9 +8,9 @@ import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = React.useState("ahmed@luminamedspa.com");
+  const [email, setEmail] = React.useState("info@adwave.co");
   const [password, setPassword] = React.useState("••••••••••");
-  const [clinic, setClinic] = React.useState("عيادات لومينا ديرما للتجميل");
+  const [clinic, setClinic] = React.useState("حساب بيتاب المباشر (Internal - Beatapp)");
   const [isLoading, setIsLoading] = React.useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -102,11 +102,11 @@ export default function LoginPage() {
             </div>
           </form>
 
-          {/* MedSpa Info Callout */}
+          {/* BeatApp Info Callout */}
           <div className="mt-6 pt-6 border-t border-slate-100 text-xs text-slate-500 flex items-start gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
             <span>
-              نظام محمي ومتزامن مع محرك GoHighLevel بدون الحاجة للتعامل مع الإعدادات المعقدة.
+              نظام BeatApp السحابي المستقل 100% لإدارة مسارات المبيعات والعيادات والعقارات بأعلى معايير الأمان.
             </span>
           </div>
         </div>

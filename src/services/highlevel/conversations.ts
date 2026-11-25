@@ -15,6 +15,7 @@ interface GhlConversationsSearchResponse {
     contactName?: string;
     fullName?: string;
     phone?: string;
+    assignedTo?: string;
     dateAdded?: number;
     dateUpdated?: number;
   }>;
@@ -35,8 +36,26 @@ interface GhlMessagesResponse {
   };
 }
 
+export interface ConversationScope {
+  /** معرّف الموظف: يرجع فقط المحادثات المسندة له أو لعملائه */
+  userId?: string;
+  /** معرّفات العملاء المسندين للموظف */
+  allowedContactIds?: Set<string>;
+}
+
+/** ترجمة أخطاء التسليم الشائعة القادمة من BeatApp / واتساب إلى عربي واضح */
+export function translateDeliveryError(err?: string): string | undefined {
+  if (!err) return undefined;
+  if (/insufficient funds/i.test(err)) return "فشل التسليم: رصيد الرسائل في حساب BeatApp غير كافٍ";
+  if (/24 hours/i.test(err))
+    return "فشل التسليم: مرّ أكثر من 24 ساعة على آخر رسالة من العميل. واتساب يسمح فقط بإرسال «قالب معتمد» في هذه الحالة.";
+  if (/not a valid whatsapp|not on whatsapp|invalid.*number/i.test(err)) return "فشل التسليم: الرقم غير مسجل على واتساب";
+  if (/opt.?out|unsubscribed|DND/i.test(err)) return "فشل التسليم: العميل أوقف استقبال الرسائل";
+  return `فشل التسليم: ${err}`;
+}
+
 export const ConversationsService = {
-  async getConversations(locationId?: string): Promise<Conversation[]> {
+  async getConversations(locationId?: string, scope?: ConversationScope): Promise<Conversation[]> {
     const config = getHighLevelConfig(locationId);
 
     if (config.isDemoMode) {
@@ -45,12 +64,19 @@ export const ConversationsService = {
 
     try {
       const res = await highLevelRequest<GhlConversationsSearchResponse>(
-        `/conversations/search?locationId=${config.locationId}&limit=50`,
-        {},
+        `/conversations/search?locationId=${config.locationId}&limit=100`,
+        { cacheTtlMs: 10 * 1000 },
         config.locationId
       );
 
-      const list = (res.conversations || []).map((c) => {
+      let raw = res.conversations || [];
+      if (scope?.userId) {
+        raw = raw.filter(
+          (c) => c.assignedTo === scope.userId || scope.allowedContactIds?.has(c.contactId)
+        );
+      }
+
+      const list = raw.map((c) => {
         const contactName = c.contactName || c.fullName || "عميل غير معروف";
         const isWhatsapp = (c.lastMessageType || "").toLowerCase().includes("whatsapp");
 
@@ -74,14 +100,16 @@ export const ConversationsService = {
           unreadCount: c.unreadCount || 0,
           channel: (isWhatsapp ? "whatsapp" : "whatsapp") as Conversation["channel"],
           status: "open" as const,
+          assignedTo: c.assignedTo,
           opportunityStage: "قيد المتابعة",
         };
       });
 
       // ALWAYS sort conversations descending by latest activity date so newest is at the top
       return list.sort((a, b) => new Date(b.lastMessageDate).getTime() - new Date(a.lastMessageDate).getTime());
-    } catch {
-      return mockStore.getConversations();
+    } catch (e) {
+      console.error("Failed to load conversations from BeatApp", e);
+      return [];
     }
   },
 
@@ -109,10 +137,7 @@ export const ConversationsService = {
           cleanBody = "📧 رسالة تسويقية آلية مسجلة في سجل العميل";
         }
 
-        let errorMessage = m.error;
-        if (errorMessage === "Agency has insufficient funds") {
-          errorMessage = "فشل التسليم: نفاد رصيد الرسائل في حساب HighLevel (Agency has insufficient funds)";
-        }
+        const errorMessage = translateDeliveryError(m.error);
 
         return {
           id: m.id,
@@ -125,8 +150,9 @@ export const ConversationsService = {
           createdAt: m.dateAdded || new Date().toISOString(),
         };
       });
-    } catch {
-      return mockStore.getMessages(conversationId);
+    } catch (e) {
+      console.error("Failed to load messages from BeatApp", e);
+      return [];
     }
   },
 

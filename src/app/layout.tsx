@@ -10,8 +10,8 @@ const ibmPlexArabic = IBM_Plex_Sans_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "BeatApp | نظام إدارة العيادات والمراكز التجميلية",
-  description: "نظام تشغيل مبسط وأنيق للعيادات والمراكز التجميلية، متكامل مع محرك GoHighLevel.",
+  title: "BeatApp | المنصة السحابية المتكاملة لإدارة العقارات والعيادات",
+  description: "منصة BeatApp السحابية المتكاملة لإدارة عمليات المبيعات، حجوزات الوحدات، والعيادات باحترافية كاملة.",
 };
 
 export default function RootLayout({

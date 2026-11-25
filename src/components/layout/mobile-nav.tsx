@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, MessageSquare, Users, KanbanSquare, Calendar } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Users, KanbanSquare, Calendar, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/contacts", label: "العملاء", icon: Users },
   { href: "/opportunities", label: "المبيعات", icon: KanbanSquare },
   { href: "/appointments", label: "المواعيد", icon: Calendar },
+  { href: "/invoices", label: "الفواتير", icon: CreditCard },
 ];
 
 export function MobileNav() {

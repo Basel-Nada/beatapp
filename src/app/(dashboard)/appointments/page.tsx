@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  AlertCircle,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,10 @@ import { Input } from "@/components/ui/input";
 import { formatArabicDate, formatArabicTime } from "@/lib/date";
 import { Appointment } from "@/types";
 import { useSearchParams } from "next/navigation";
+import { useApp } from "@/context/app-context";
 
 function AppointmentsContent() {
+  const { currentUser, users, isAdmin, currentIndustry } = useApp();
   const searchParams = useSearchParams();
   const qContactId = searchParams.get("contactId");
   const qName = searchParams.get("name");
@@ -33,18 +36,74 @@ function AppointmentsContent() {
   const [loading, setLoading] = React.useState(true);
   const [viewMode, setViewMode] = React.useState<"today" | "week" | "month">("today");
   const [isBookModalOpen, setIsBookModalOpen] = React.useState(false);
+  const [bookingError, setBookingError] = React.useState<string | null>(null);
+  const [bookingSuccess, setBookingSuccess] = React.useState<string | null>(null);
+
+  const defaultService =
+    currentIndustry === "real_estate"
+      ? "معاينة ميدانية لوحدة عقارية"
+      : "استشارة وجلسة نضارة للوجه";
 
   // New appointment form state
   const [formData, setFormData] = React.useState({
     contactId: "",
     contactName: "",
     contactPhone: "",
-    service: "ليزر إزالة شعر الجسم كامل",
-    startTime: new Date().toISOString().substring(0, 16),
-    staffName: "د. نورة الشمري",
+    service: defaultService,
+    startTime: new Date(Date.now() + 24 * 3600 * 1000).toISOString().substring(0, 16),
+    staffName: currentUser.name || "فريق العمل",
+    assignedUserId: currentUser.id !== "user-super-admin" ? currentUser.id : "",
     notes: "",
   });
   const [booking, setBooking] = React.useState(false);
+
+  // Available slots state
+  const [availableSlots, setAvailableSlots] = React.useState<string[]>([]);
+  const [loadingSlots, setLoadingSlots] = React.useState(false);
+
+  // Fetch free slots from BeatApp for the chosen date
+  const loadFreeSlots = React.useCallback(async (targetDateIso: string) => {
+    try {
+      setLoadingSlots(true);
+      const chosen = new Date(targetDateIso);
+      const startOfDay = new Date(chosen.getFullYear(), chosen.getMonth(), chosen.getDate(), 0, 0, 0).getTime();
+      const endOfDay = startOfDay + 24 * 3600 * 1000;
+
+      const res = await fetch(`/api/appointments?action=slots&startDateMs=${startOfDay}&endDateMs=${endOfDay}`);
+      const data = await res.json();
+      if (data.slots) {
+        // Collect slots array from dates
+        const allSlots: string[] = [];
+        Object.values(data.slots).forEach((val: unknown) => {
+          const entry = val as { slots?: string[] };
+          if (Array.isArray(entry?.slots)) {
+            allSlots.push(...entry.slots);
+          }
+        });
+        setAvailableSlots(allSlots);
+      }
+    } catch (e) {
+      console.warn("Could not load free slots", e);
+    } finally {
+      setLoadingSlots(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (isBookModalOpen) {
+      loadFreeSlots(formData.startTime);
+    }
+  }, [isBookModalOpen, formData.startTime, loadFreeSlots]);
+
+  // Sync staffName with active user
+  React.useEffect(() => {
+    setFormData((prev) => ({
+      ...prev,
+      staffName: currentUser.name || prev.staffName,
+      assignedUserId: currentUser.id !== "user-super-admin" ? currentUser.id : prev.assignedUserId,
+      service: currentIndustry === "real_estate" ? "معاينة ميدانية لوحدة عقارية" : "استشارة وجلسة نضارة للوجه",
+    }));
+  }, [currentUser, currentIndustry]);
 
   // Auto-handle query params to prefill and open booking modal
   React.useEffect(() => {
@@ -57,6 +116,7 @@ function AppointmentsContent() {
           contactPhone: qPhone || prev.contactPhone,
           service: qService || prev.service,
         }));
+        setBookingError(null);
         setIsBookModalOpen(true);
       } else if (qContactId) {
         fetch(`/api/contacts/${qContactId}`)
@@ -70,6 +130,7 @@ function AppointmentsContent() {
                 contactPhone: data.contact.phone || prev.contactPhone,
                 service: data.contact.serviceInterest || prev.service,
               }));
+              setBookingError(null);
               setIsBookModalOpen(true);
             }
           })
@@ -97,31 +158,46 @@ function AppointmentsContent() {
   const handleBookAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     setBooking(true);
+    setBookingError(null);
     try {
       const res = await fetch("/api/appointments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          contactPhone: formData.contactPhone || "",
           startTime: new Date(formData.startTime).toISOString(),
           endTime: new Date(new Date(formData.startTime).getTime() + 60 * 60 * 1000).toISOString(),
         }),
       });
+
+      const resData = await res.json().catch(() => ({}));
+
       if (res.ok) {
-        setIsBookModalOpen(false);
-        setFormData({
-          contactId: "",
-          contactName: "",
-          contactPhone: "",
-          service: "ليزر إزالة شعر الجسم كامل",
-          startTime: new Date().toISOString().substring(0, 16),
-          staffName: "د. نورة الشمري",
-          notes: "",
-        });
-        fetchAppointments();
+        setBookingSuccess("تم تثبيت الموعد بنجاح في تقويم BeatApp السحابي!");
+        setTimeout(() => {
+          setIsBookModalOpen(false);
+          setBookingSuccess(null);
+          setFormData({
+            contactId: "",
+            contactName: "",
+            contactPhone: "",
+            service: defaultService,
+            startTime: new Date(Date.now() + 24 * 3600 * 1000).toISOString().substring(0, 16),
+            staffName: currentUser.name || "فريق العمل",
+            assignedUserId: currentUser.id !== "user-super-admin" ? currentUser.id : "",
+            notes: "",
+          });
+          fetchAppointments();
+          window.dispatchEvent(new Event("beatapp:refresh-notifications"));
+        }, 1200);
+      } else {
+        const fullErr = [resData.error, resData.hint].filter(Boolean).join(" — ");
+        setBookingError(fullErr || "تعذر حجز الموعد في BeatApp، يرجى التأكد من البيانات.");
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: unknown) {
+      const err = e as Error;
+      setBookingError(err.message || "حدث خطأ في الاتصال");
     } finally {
       setBooking(false);
     }
@@ -134,7 +210,7 @@ function AppointmentsContent() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">جدول المواعيد</h1>
           <p className="mt-1 text-xs text-slate-500">
-            إدارة مواعيد العيادة ومزامنة التقويم لحظياً مع HighLevel Calendar
+            إدارة مواعيد العيادة ومزامنة التقويم لحظياً عبر تقويم BeatApp الذكي
           </p>
         </div>
 
@@ -191,7 +267,7 @@ function AppointmentsContent() {
         </div>
 
         <Badge variant="brand" className="text-xs py-1 px-3">
-          مزامنة نشطة مع HighLevel Calendar
+          تقويم BeatApp السحابي (مباشر)
         </Badge>
       </div>
 
@@ -265,9 +341,23 @@ function AppointmentsContent() {
         isOpen={isBookModalOpen}
         onClose={() => setIsBookModalOpen(false)}
         title="حجز موعد جديد في العيادة"
-        description="سيتم إدراج الموعد في تقويم HighLevel تلقائياً"
+        description="سيتم إدراج الموعد في جدول المواعيد وسجل العميل تلقائياً"
       >
         <form onSubmit={handleBookAppointment} className="space-y-4">
+          {bookingError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+              <span>{bookingError}</span>
+            </div>
+          )}
+
+          {bookingSuccess && (
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span>{bookingSuccess}</span>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               اسم العميل *
@@ -283,11 +373,10 @@ function AppointmentsContent() {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              رقم الهاتف *
+              رقم الهاتف (اختياري)
             </label>
             <Input
               type="tel"
-              required
               placeholder="+966 50 123 4567"
               value={formData.contactPhone}
               onChange={(e) => setFormData({ ...formData, contactPhone: e.target.value })}
@@ -297,47 +386,115 @@ function AppointmentsContent() {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              الخدمة التجميلية
+              {currentIndustry === "real_estate" ? "نوع المعاينة / الخدمة" : "الخدمة / الاستشارة المطلوبة"}
             </label>
-            <select
-              value={formData.service}
-              onChange={(e) => setFormData({ ...formData, service: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600"
-            >
-              <option value="ليزر إزالة شعر الجسم كامل">ليزر إزالة شعر الجسم كامل</option>
-              <option value="جلسة هيدرافاشيل بلاتينيوم">جلسة هيدرافاشيل بلاتينيوم</option>
-              <option value="حقن بوتوكس وتجاعيد الجبهة">حقن بوتوكس وتجاعيد الجبهة</option>
-              <option value="فيلر شفايف روسي">فيلر شفايف روسي</option>
-              <option value="جلسة بلازما الشعر PRP">جلسة بلازما الشعر PRP</option>
-            </select>
+            {currentIndustry === "real_estate" ? (
+              <select
+                value={formData.service}
+                onChange={(e) => setFormData({ ...formData, service: e.target.value })}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600"
+              >
+                <option value="معاينة ميدانية لوحدة عقارية">معاينة ميدانية لوحدة عقارية</option>
+                <option value="جلسة تفاوض ودراسة ميزانية">جلسة تفاوض ودراسة ميزانية</option>
+                <option value="توقيع عقد وسداد دفعة حجز">توقيع عقد وسداد دفعة حجز</option>
+                <option value="استشارة استثمارية عقارية">استشارة استثمارية عقارية</option>
+              </select>
+            ) : (
+              <select
+                value={formData.service}
+                onChange={(e) => setFormData({ ...formData, service: e.target.value })}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600"
+              >
+                <option value="جلسة هيدرافاشيل بلاتينيوم">جلسة هيدرافاشيل بلاتينيوم</option>
+                <option value="ليزر إزالة شعر الجسم كامل">ليزر إزالة شعر الجسم كامل</option>
+                <option value="حقن بوتوكس وتجاعيد الجبهة">حقن بوتوكس وتجاعيد الجبهة</option>
+                <option value="فيلر شفايف وتحديد">فيلر شفايف وتحديد</option>
+                <option value="جلسة بلازما الشعر PRP">جلسة بلازما الشعر PRP</option>
+                <option value="استشارة جلدية وتجميل عامة">استشارة جلدية وتجميل عامة</option>
+              </select>
+            )}
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              التاريخ والوقت *
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                التاريخ والوقت *
+              </label>
+              <span className="text-[10px] text-slate-400">تقويم الرياض (+03:00)</span>
+            </div>
             <Input
               type="datetime-local"
               required
               value={formData.startTime}
               onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
             />
+
+            {/* Quick Available Slots from BeatApp Calendar */}
+            {availableSlots.length > 0 && (
+              <div className="mt-2 p-2 bg-slate-50 rounded-xl border border-slate-200/80">
+                <div className="text-[10px] font-bold text-slate-600 mb-1 flex items-center justify-between">
+                  <span>✨ الفترات الشاغرة المتاحة في تقويم BeatApp:</span>
+                  <span className="text-emerald-700 font-normal">اختر للتعبئة التلقائية</span>
+                </div>
+                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                  {availableSlots.slice(0, 12).map((slot, idx) => {
+                    const timeStr = new Date(slot).toLocaleTimeString("ar-SA", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    });
+                    return (
+                      <button
+                        type="button"
+                        key={idx}
+                        onClick={() => {
+                          // Format to YYYY-MM-DDTHH:mm for datetime-local input
+                          const d = new Date(slot);
+                          const localIso = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+                            .toISOString()
+                            .substring(0, 16);
+                          setFormData({ ...formData, startTime: localIso });
+                        }}
+                        className="text-[10px] bg-white hover:bg-brand-50 hover:border-brand-300 border border-slate-200 text-slate-700 px-2 py-0.5 rounded font-mono transition-colors"
+                      >
+                        {timeStr}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              الأخصائي / الطبيب
+              الموظف / المستشار المسؤول
             </label>
-            <select
-              value={formData.staffName}
-              onChange={(e) => setFormData({ ...formData, staffName: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600"
-            >
-              <option value="د. نورة الشمري">د. نورة الشمري</option>
-              <option value="د. هدى السلمان">د. هدى السلمان</option>
-              <option value="أخصائية رغد">أخصائية رغد</option>
-              <option value="أخصائية ندى">أخصائية ندى</option>
-            </select>
+            {isAdmin ? (
+              <select
+                value={formData.staffName}
+                onChange={(e) => {
+                  const selectedUser = users.find((u) => u.name === e.target.value);
+                  setFormData({
+                    ...formData,
+                    staffName: e.target.value,
+                    assignedUserId: selectedUser?.id || "",
+                  });
+                }}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-600"
+              >
+                {users.map((u) => (
+                  <option key={u.id} value={u.name}>
+                    {u.name} ({u.role === "admin" || u.role === "super_admin" ? "إدارة" : "مبيعات"})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                value={currentUser.name}
+                disabled
+                className="bg-slate-50 font-bold text-slate-700"
+              />
+            )}
           </div>
 
           <div>
@@ -346,10 +503,14 @@ function AppointmentsContent() {
             </label>
             <Input
               type="text"
-              placeholder="مثال: الجلسة الثانية في الباقة، تفضل الانتظار في الجناح الخاص"
+              placeholder="مثال: يفضل التواصل عبر واتساب لتأكيد الحضور"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
             />
+          </div>
+
+          <div className="p-2.5 rounded-xl bg-teal-50/80 border border-teal-200/80 text-[11px] text-teal-900 leading-relaxed">
+            💡 <strong>التخزين المباشر:</strong> يتم حفظ وتوثيق الموعد فوراً داخل <strong>تقويم حساب BeatApp السحابي</strong>، ويظهر في الخط الزمني لنشاط العميل مع إصدار رابط Google Meet تلقائياً.
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">

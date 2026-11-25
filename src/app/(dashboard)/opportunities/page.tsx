@@ -24,6 +24,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { formatCurrency } from "@/lib/utils";
 import { formatRelativeArabicTime } from "@/lib/date";
 import { Opportunity, PipelineStageId } from "@/types";
+import { useApp } from "@/context/app-context";
 
 interface PipelineStageItem {
   id: string;
@@ -39,6 +40,7 @@ interface PipelineItem {
 }
 
 export default function OpportunitiesPage() {
+  const { currentIndustry } = useApp();
   const [pipelines, setPipelines] = React.useState<PipelineItem[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = React.useState<string>("");
   const [stages, setStages] = React.useState<PipelineStageItem[]>([]);
@@ -46,6 +48,25 @@ export default function OpportunitiesPage() {
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
   const [movingId, setMovingId] = React.useState<string | null>(null);
+
+  // Auto-select pipeline based on active industry mode
+  React.useEffect(() => {
+    if (pipelines.length > 0) {
+      if (currentIndustry === "real_estate") {
+        const rePipe = pipelines.find((p) => p.id === "pipe-re-1" || p.name.includes("العقارية"));
+        if (rePipe && rePipe.id !== selectedPipelineId) {
+          setSelectedPipelineId(rePipe.id);
+          fetchPipelineData(rePipe.id, false);
+        }
+      } else {
+        const clinicPipe = pipelines.find((p) => p.id === "pipe-demo-1" || p.name.includes("العيادة"));
+        if (clinicPipe && clinicPipe.id !== selectedPipelineId) {
+          setSelectedPipelineId(clinicPipe.id);
+          fetchPipelineData(clinicPipe.id, false);
+        }
+      }
+    }
+  }, [currentIndustry, pipelines]);
 
   const fetchPipelineData = React.useCallback(async (pipelineId?: string, isBackground = false) => {
     if (!isBackground) setLoading(true);
@@ -127,7 +148,7 @@ export default function OpportunitiesPage() {
             </span>
           </div>
           <p className="text-xs text-slate-500">
-            تحكم كامل في جميع خطوط المبيعات (Pipelines) المسجلة في GoHighLevel ومزامنة المراحل فورياً
+            تحكم كامل في جميع خطوط المبيعات (Pipelines) المسجلة في BeatApp ومتابعة مراحل الصفقات فورياً
           </p>
         </div>
 

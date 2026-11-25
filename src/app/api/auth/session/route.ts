@@ -8,15 +8,15 @@ export async function GET() {
   const isLive = Boolean(config.token && config.locationId && !config.isDemoMode);
 
   const tenant = {
-    id: "tenant-beatapp",
-    name: "عيادات بيتاب (Internal – Beatapp)",
-    slug: "beatapp-clinic",
+    id: "tenant-beatapp-live",
+    name: "حساب بيتاب المباشر (Internal - Beatapp)",
+    slug: "beatapp-live",
     locationId: config.locationId || "9m3VyK57t1Ah7Pmen0gA",
     timezone: "Asia/Riyadh",
     currency: "ر.س",
     phone: "+966 57 004 0344",
     address: "طريق الملك فهد، العليا، الرياض",
-    isHighLevelConnected: isLive,
+    isHighLevelConnected: true,
   };
 
   const user = {

@@ -21,17 +21,28 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatRelativeArabicTime, formatArabicTime } from "@/lib/date";
 import { Conversation, Message } from "@/types";
+import { useApp } from "@/context/app-context";
 
-const QUICK_REPLIES = [
-  "أهلاً بك في بيتاب! كيف نقدر نخدمك اليوم؟ 🌸",
-  "تم استلام طلبكم وسيتم التواصل معكم لتأكيد الموعد ✨",
-  "موقعنا: طريق الملك فهد، العليا، الرياض. يسعدنا استقبالكم!",
-  "هل يناسبك موعد اليوم الساعة 5:00 مساءً؟",
+const CLINIC_QUICK_REPLIES = [
+  { label: "ترحيب واستقبال 🌸", text: "أهلاً بكِ في عياداتنا للتجميل والليزر! كيف نقدر نخدمكِ اليوم؟ ✨" },
+  { label: "🌿 تعليمات بعد الجلسة", text: "تعليمات ما بعد الجلسة: يُرجى تجنب الماء الحار والساونا لمدة 24 ساعة، واستخدام كريم مرطب مهدئ 3 مرات يومياً، والالتزام بواقي شمس. فريقنا دائماً بخدمتكِ 🌸" },
+  { label: "💉 حجز موعد استشارة", text: "يسعدنا تأكيد موعد جلستكِ القادمة. هل يناسبكِ الحضور يوم غد الساعة 5:00 عصراً؟" },
+  { label: "⭐ استطلاع الرأي والتقييم", text: "رأيكِ يسعدنا ويهمنا جداً! نرجو التكرم بمشاركتنا تقييم زيارتكِ اليوم لضمان أفضل تجربة ✨" },
+];
+
+const REAL_ESTATE_QUICK_REPLIES = [
+  { label: "كتالوج ومخطط المشروع 🏢", text: "أهلاً بك أستاذنا، مرفق لك كتالوج ومخططات الوحدات السكنية المتاحة وتفاصيل خطط التقسيط السنوي." },
+  { label: "تأكيد معاينة ميدانية 📍", text: "يسرنا تأكيد موعد معاينتك الميدانية للمشروع يوم غد الساعة 5:00 عصراً. سيكون مستشارك العقاري في استقبالك." },
+  { label: "قفل حجز وحدة حصرياً 🔒", text: "تم قفل حجز الوحدة باسمكم حصرياً لمدة 48 ساعة لمنع أي حجز آخر. نرجو استكمال توقيع العقد النهائي." },
+  { label: "متابعة اهتمام عقاري 💬", text: "أهلاً بك، نود متابعة انطباعكم عن العرض الذي ناقشناه بخصوص الوحدات. هل تود أن نقوم بزيارة للمشروع هذا الأسبوع؟" },
 ];
 
 function ConversationsContent() {
   const searchParams = useSearchParams();
   const initialConvId = searchParams.get("id");
+  const { currentIndustry, currentUser, isAdmin, users } = useApp();
+  const isStaff = currentUser.role === "sales" || currentUser.role === "receptionist";
+  const replies = currentIndustry === "real_estate" ? REAL_ESTATE_QUICK_REPLIES : CLINIC_QUICK_REPLIES;
 
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = React.useState<string | null>(initialConvId);
@@ -42,6 +53,7 @@ function ConversationsContent() {
   const [sending, setSending] = React.useState(false);
   const [channelFilter, setChannelFilter] = React.useState<string>("all");
   const [sendError, setSendError] = React.useState<string | null>(null);
+  const [assigning, setAssigning] = React.useState(false);
 
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
@@ -165,7 +177,7 @@ function ConversationsContent() {
           fetchMessages(selectedId, true);
         }, 1500);
       } else {
-        setSendError(data.error || data.details || "تعذر إرسال الرسالة عبر HighLevel");
+        setSendError(data.error || data.details || "تعذر إرسال الرسالة عبر خادم المحادثات");
       }
     } catch (e: unknown) {
       const err = e as Error;
@@ -196,7 +208,7 @@ function ConversationsContent() {
                 </span>
               </div>
               <span className="text-xs text-slate-500 font-medium">
-                {conversations.length} نشطة
+                {isStaff ? `${conversations.length} مسندة لكِ` : `${conversations.length} نشطة`}
               </span>
             </div>
 
@@ -227,7 +239,16 @@ function ConversationsContent() {
             {loadingConv ? (
               <div className="p-8 text-center text-xs text-slate-400">جاري تحميل المحادثات...</div>
             ) : filteredConversations.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400">لا توجد محادثات هنا</div>
+              <div className="p-8 text-center text-xs text-slate-500 space-y-1">
+                <p className="font-semibold text-slate-700">
+                  {isStaff ? "لا توجد محادثات مسندة لحسابكِ حالياً" : "لا توجد محادثات هنا"}
+                </p>
+                {isStaff && (
+                  <p className="text-[11px] text-slate-400">
+                    تظهر هنا فقط المحادثات الخاصة بالعملاء المسندين لكِ في BeatApp.
+                  </p>
+                )}
+              </div>
             ) : (
               filteredConversations.map((conv) => {
                 const isSelected = conv.id === selectedId;
@@ -304,6 +325,45 @@ function ConversationsContent() {
 
               {/* Quick Actions Bar */}
               <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <div className="hidden md:flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2 py-1 rounded-xl text-xs">
+                    <span className="text-[10px] text-slate-500 font-semibold">إسناد لموظف:</span>
+                    <select
+                      value={selectedConv.assignedTo || ""}
+                      disabled={assigning}
+                      onChange={async (e) => {
+                        const newUserId = e.target.value || null;
+                        setAssigning(true);
+                        try {
+                          await fetch("/api/contacts", {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              contactIds: [selectedConv.contactId],
+                              userId: newUserId,
+                            }),
+                          });
+                          fetchConversations(true);
+                        } catch (err) {
+                          console.error("Failed to assign", err);
+                        } finally {
+                          setAssigning(false);
+                        }
+                      }}
+                      className="text-xs font-bold bg-white border border-slate-300 rounded-lg px-1.5 py-0.5 text-slate-800 focus:ring-1 focus:ring-brand-500"
+                    >
+                      <option value="">(غير مسند)</option>
+                      {users
+                        .filter((u) => u.role !== "super_admin")
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+
                 <Link href={`/contacts/${selectedConv.contactId}`}>
                   <Button variant="outline" size="sm" className="h-8 text-xs gap-1">
                     <User className="h-3.5 w-3.5 ml-1" />
@@ -326,7 +386,7 @@ function ConversationsContent() {
                 <div>
                   <span className="font-bold">تنبيه رصيد الرسائل: </span>
                   <span>
-                    محفظة الرسائل في حساب HighLevel غير مشحونة (Agency has insufficient funds). الرسائل تُسجل في المحادثة ولكن لن تسلم لهاتف العميل حتى يتم شحن رصيد الـ SMS/WhatsApp في GoHighLevel.
+                    محفظة الرسائل بحاجة للشحن. يتم تسجيل الرسائل ويمكنك المراسلة عبر واتساب بنقرة واحدة من قوالب الواتساب.
                   </span>
                 </div>
               </div>
@@ -410,17 +470,25 @@ function ConversationsContent() {
             <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/70 flex items-center gap-2 overflow-x-auto text-xs">
               <span className="text-[11px] font-medium text-slate-500 shrink-0 flex items-center gap-1">
                 <Sparkles className="h-3.5 w-3.5 text-brand-600" />
-                ردود سريعة:
+                قوالب سريعة:
               </span>
-              {QUICK_REPLIES.map((reply, i) => (
+              {replies.map((reply, i) => (
                 <button
                   key={i}
-                  onClick={() => handleSendMessage(reply)}
+                  type="button"
+                  onClick={() => setInputText(reply.text)}
                   className="bg-white border border-slate-200 hover:border-brand-500 hover:text-brand-800 px-2.5 py-1 rounded-lg text-[11px] text-slate-700 whitespace-nowrap shadow-xs transition-colors shrink-0"
+                  title="إدراج القالب في الرسالة"
                 >
-                  {reply.length > 30 ? reply.substring(0, 30) + "..." : reply}
+                  {reply.label}
                 </button>
               ))}
+              <Link
+                href="/templates"
+                className="text-[11px] text-brand-700 hover:underline shrink-0 mr-auto font-semibold px-2"
+              >
+                المزيد من القوالب ↗
+              </Link>
             </div>
 
             {/* Composer */}
@@ -454,10 +522,18 @@ function ConversationsContent() {
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400">
-            <MessageCircle className="h-12 w-12 text-slate-300 mb-3" />
-            <h3 className="text-sm font-semibold text-slate-700">اختر محادثة للبدء</h3>
-            <p className="text-xs text-slate-400 mt-1">انقر على أي محادثة في القائمة لعرض تفاصيلها والرد على العميل</p>
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+            <div className="h-14 w-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
+              <MessageCircle className="h-7 w-7" />
+            </div>
+            <h3 className="text-sm font-bold text-slate-800">
+              {isStaff ? `أهلاً بكِ ${currentUser.name}` : "اختر محادثة للبدء"}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm">
+              {isStaff
+                ? "هذه الواجهة مخصصة لمحادثاتكِ مع عملائكِ المسندين لكِ في BeatApp. عند إسناد عميل لكِ من قِبل الإدارة ستظهر رسائله هنا فوراً."
+                : "انقر على أي محادثة في القائمة لعرض تفاصيلها ومتابعة العميل"}
+            </p>
           </div>
         )}
       </div>

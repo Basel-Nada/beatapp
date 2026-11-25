@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ConversationsService } from "@/services/highlevel/conversations";
+import { getActingUser, ActingUser } from "@/lib/server/acting-user";
+import { getConversationScope } from "@/lib/server/scope";
 import { z } from "zod";
+
+export const dynamic = "force-dynamic";
 
 const sendMessageSchema = z.object({
   body: z.string().min(1, "نص الرسالة مطلوب"),
@@ -8,11 +12,27 @@ const sendMessageSchema = z.object({
   senderName: z.string().optional(),
 });
 
+/** الموظف لا يستطيع فتح أو الرد على محادثة عميل غير مسند له */
+async function canAccess(me: ActingUser, id: string): Promise<boolean> {
+  if (!me.isStaff) return true;
+  const scope = await getConversationScope(me);
+  if (scope?.allowedContactIds?.has(id)) return true;
+  const mine = await ConversationsService.getConversations(undefined, scope);
+  return mine.some((c) => c.id === id);
+}
+
+const FORBIDDEN = NextResponse.json(
+  { error: "هذه المحادثة غير مسندة لك. تواصل مع الإدارة لإسناد العميل إليك." },
+  { status: 403 }
+);
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const me = await getActingUser(req);
+    if (!(await canAccess(me, params.id))) return FORBIDDEN;
     const messages = await ConversationsService.getMessages(params.id);
     return NextResponse.json({ messages });
   } catch (error: unknown) {
@@ -29,6 +49,9 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const me = await getActingUser(req);
+    if (!(await canAccess(me, params.id))) return FORBIDDEN;
+
     const body = await req.json();
     const validated = sendMessageSchema.parse(body);
 
@@ -36,7 +59,7 @@ export async function POST(
       params.id,
       validated.body,
       validated.contactId,
-      validated.senderName || "الاستقبال"
+      validated.senderName || me.name
     );
 
     return NextResponse.json({ message }, { status: 201 });
@@ -49,7 +72,7 @@ export async function POST(
     }
     const err = error as Error;
     return NextResponse.json(
-      { error: "تعذر إرسال الرسالة", details: err.message },
+      { error: "تعذر إرسال الرسالة عبر BeatApp", details: err.message },
       { status: 500 }
     );
   }
